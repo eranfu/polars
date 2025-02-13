@@ -293,74 +293,12 @@ where
                     }
                 }
 
-                if let BorrowedValue::Array(array) = json_value {
-                    if array.is_empty() & self.schema.is_none() & self.schema_overwrite.is_none() {
-                        return Ok(DataFrame::empty());
-                    }
-                }
-
-                let allow_extra_fields_in_struct = self.schema.is_some();
-
-                // struct type
-                let dtype = if let Some(mut schema) = self.schema {
-                    if let Some(overwrite) = self.schema_overwrite {
-                        let mut_schema = Arc::make_mut(&mut schema);
-                        overwrite_schema(mut_schema, overwrite)?;
-                    }
-
-                    DataType::Struct(schema.iter_fields().collect()).to_arrow(CompatLevel::newest())
-                } else {
-                    // infer
-                    let inner_dtype = if let BorrowedValue::Array(values) = json_value {
-                        infer::json_values_to_supertype(
-                            values,
-                            self.infer_schema_len
-                                .unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
-                        )?
-                        .to_arrow(CompatLevel::newest())
-                    } else {
-                        polars_json::json::infer(json_value)?
-                    };
-
-                    if let Some(overwrite) = self.schema_overwrite {
-                        let ArrowDataType::Struct(fields) = inner_dtype else {
-                            polars_bail!(ComputeError: "can only deserialize json objects")
-                        };
-
-                        let mut schema = Schema::from_iter(fields.iter().map(Into::<Field>::into));
-                        overwrite_schema(&mut schema, overwrite)?;
-
-                        DataType::Struct(
-                            schema
-                                .into_iter()
-                                .map(|(name, dt)| Field::new(name, dt))
-                                .collect(),
-                        )
-                        .to_arrow(CompatLevel::newest())
-                    } else {
-                        inner_dtype
-                    }
-                };
-
-                let dtype = if let BorrowedValue::Array(_) = &json_value {
-                    ArrowDataType::LargeList(Box::new(arrow::datatypes::Field::new(
-                        PlSmallStr::from_static("item"),
-                        dtype,
-                        true,
-                    )))
-                } else {
-                    dtype
-                };
-
-                let arr = polars_json::json::deserialize(
+                json_to_data_frame(
                     json_value,
-                    dtype,
-                    allow_extra_fields_in_struct,
-                )?;
-                let arr = arr.as_any().downcast_ref::<StructArray>().ok_or_else(
-                    || polars_err!(ComputeError: "can only deserialize json objects"),
-                )?;
-                DataFrame::try_from(arr.clone())
+                    self.schema,
+                    self.schema_overwrite,
+                    self.infer_schema_len,
+                )
             },
             JsonFormat::JsonLines => {
                 let mut json_reader = CoreJsonReader::new(
@@ -393,6 +331,79 @@ where
             Ok(out)
         }
     }
+}
+
+pub fn json_to_data_frame(
+    json_value: &simd_json::BorrowedValue,
+    schema: Option<SchemaRef>,
+    schema_overwrite: Option<&Schema>,
+    infer_schema_len: Option<NonZeroUsize>,
+) -> PolarsResult<DataFrame> {
+    if let BorrowedValue::Array(array) = json_value {
+        if array.is_empty() & schema.is_none() & schema_overwrite.is_none() {
+            return Ok(DataFrame::empty());
+        }
+    }
+
+    let allow_extra_fields_in_struct = schema.is_some();
+
+    // struct type
+    let dtype = if let Some(mut schema) = schema {
+        if let Some(overwrite) = schema_overwrite {
+            let mut_schema = Arc::make_mut(&mut schema);
+            overwrite_schema(mut_schema, overwrite)?;
+        }
+
+        DataType::Struct(schema.iter_fields().collect()).to_arrow(CompatLevel::newest())
+    } else {
+        // infer
+        let inner_dtype = if let BorrowedValue::Array(values) = json_value {
+            infer::json_values_to_supertype(
+                values,
+                infer_schema_len.unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
+            )?
+            .to_arrow(CompatLevel::newest())
+        } else {
+            polars_json::json::infer(json_value)?
+        };
+
+        if let Some(overwrite) = schema_overwrite {
+            let ArrowDataType::Struct(fields) = inner_dtype else {
+                polars_bail!(ComputeError: "can only deserialize json objects")
+            };
+
+            let mut schema = Schema::from_iter(fields.iter().map(Into::<Field>::into));
+            overwrite_schema(&mut schema, overwrite)?;
+
+            DataType::Struct(
+                schema
+                    .into_iter()
+                    .map(|(name, dt)| Field::new(name, dt))
+                    .collect(),
+            )
+            .to_arrow(CompatLevel::newest())
+        } else {
+            inner_dtype
+        }
+    };
+
+    let dtype = if let BorrowedValue::Array(_) = &json_value {
+        ArrowDataType::LargeList(Box::new(arrow::datatypes::Field::new(
+            PlSmallStr::from_static("item"),
+            dtype,
+            true,
+        )))
+    } else {
+        dtype
+    };
+
+    let arr = polars_json::json::deserialize(json_value, dtype, allow_extra_fields_in_struct)?;
+    let arr = arr
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| polars_err!(ComputeError: "can only deserialize json objects"))?;
+
+    DataFrame::try_from(arr.clone())
 }
 
 impl<'a, R> JsonReader<'a, R>
@@ -474,7 +485,7 @@ where
     ///    .with_sub_json_path("data/data_data")
     ///    .finish()?;
     ///
-    /// let reference = polars_core::df! {    
+    /// let reference = polars_core::df! {
     ///     "a" => [1, 3],
     ///     "b" => [2, 4],
     /// }?;
