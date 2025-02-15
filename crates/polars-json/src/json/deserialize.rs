@@ -42,6 +42,7 @@ fn deserialize_primitive_into<'a, T: NativeType + NumCast, A: Borrow<BorrowedVal
         BorrowedValue::Static(StaticNode::F64(v)) => T::from(*v),
         BorrowedValue::Static(StaticNode::Bool(v)) => T::from(*v as u8),
         BorrowedValue::Static(StaticNode::Null) => None,
+        BorrowedValue::String(s) if s == "-" => None,
         _ => {
             err_idx = if err_idx == rows.len() { i } else { err_idx };
             None
