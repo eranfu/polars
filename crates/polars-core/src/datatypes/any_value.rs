@@ -1,7 +1,9 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 use std::borrow::Cow;
 
+use arrow::temporal_conversions::EPOCH_DAYS_FROM_CE;
 use arrow::types::PrimitiveType;
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars_compute::cast::SerPrimitive;
 use polars_error::feature_gated;
 use polars_utils::total_ord::ToTotalOrd;
@@ -1566,6 +1568,35 @@ impl<'a> From<&'a str> for AnyValue<'a> {
 impl From<bool> for AnyValue<'static> {
     fn from(value: bool) -> Self {
         AnyValue::Boolean(value)
+    }
+}
+
+#[cfg(feature = "dtype-date")]
+impl From<NaiveDate> for AnyValue<'static> {
+    fn from(value: NaiveDate) -> Self {
+        AnyValue::Date(value.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
+    }
+}
+
+#[cfg(feature = "dtype-datetime")]
+impl From<NaiveDateTime> for AnyValue<'static> {
+    fn from(value: NaiveDateTime) -> Self {
+        AnyValue::DatetimeOwned(
+            value.and_utc().timestamp_nanos_opt().unwrap(),
+            TimeUnit::Nanoseconds,
+            None,
+        )
+    }
+}
+
+#[cfg(all(feature = "timezones", feature = "dtype-datetime"))]
+impl From<DateTime<chrono_tz::Tz>> for AnyValue<'static> {
+    fn from(value: DateTime<chrono_tz::Tz>) -> Self {
+        AnyValue::DatetimeOwned(
+            value.timestamp_nanos_opt().unwrap(),
+            TimeUnit::Nanoseconds,
+            Some(Arc::from(TimeZone::from_chrono(&value.timezone()))),
+        )
     }
 }
 
