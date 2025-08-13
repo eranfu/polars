@@ -62,7 +62,7 @@ pub trait LazyFileListReader: Clone {
     ///
     /// This method should not take into consideration [LazyFileListReader::n_rows]
     /// nor [LazyFileListReader::row_index].
-    fn concat_impl(&self, lfs: Vec<LazyFrame>) -> PolarsResult<LazyFrame> {
+    fn concat_impl(&self, lfs: impl IntoIterator<Item = LazyFrame>) -> PolarsResult<LazyFrame> {
         let args = UnionArgs {
             rechunk: self.rechunk(),
             parallel: true,
@@ -70,7 +70,7 @@ pub trait LazyFileListReader: Clone {
             from_partitioned_ds: true,
             ..Default::default()
         };
-        concat_impl(&lfs, args)
+        concat_impl(lfs, args)
     }
 
     /// Get the final [LazyFrame].

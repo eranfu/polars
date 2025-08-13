@@ -417,7 +417,7 @@ impl SQLContext {
                 if lf_schema.len() != rf_schema.len() {
                     polars_bail!(SQLInterface: "UNION requires equal number of columns in each table (use 'UNION BY NAME' to combine mismatched tables)")
                 }
-                let concatenated = polars_lazy::dsl::concat(vec![lf, rf], opts);
+                let concatenated = polars_lazy::dsl::concat([lf, rf], opts);
                 match quantifier {
                     SetQuantifier::Distinct | SetQuantifier::None => {
                         concatenated.map(|lf| lf.unique(None, UniqueKeepStrategy::Any))
@@ -427,11 +427,11 @@ impl SQLContext {
             },
             // UNION ALL BY NAME
             #[cfg(feature = "diagonal_concat")]
-            SetQuantifier::AllByName => concat_lf_diagonal(vec![lf, rf], opts),
+            SetQuantifier::AllByName => concat_lf_diagonal([lf, rf], opts),
             // UNION [DISTINCT] BY NAME
             #[cfg(feature = "diagonal_concat")]
             SetQuantifier::ByName | SetQuantifier::DistinctByName => {
-                let concatenated = concat_lf_diagonal(vec![lf, rf], opts);
+                let concatenated = concat_lf_diagonal([lf, rf], opts);
                 concatenated.map(|lf| lf.unique(None, UniqueKeepStrategy::Any))
             },
             #[allow(unreachable_patterns)]

@@ -10,28 +10,21 @@ use rayon::prelude::*;
 
 use crate::prelude::*;
 
-pub(crate) fn concat_impl<L: AsRef<[LazyFrame]>>(
-    inputs: L,
+pub(crate) fn concat_impl(
+    inputs: impl IntoIterator<Item = LazyFrame>,
     args: UnionArgs,
 ) -> PolarsResult<LazyFrame> {
-    let mut inputs = inputs.as_ref().to_vec();
-
-    let lf = std::mem::take(
-        inputs
-            .get_mut(0)
-            .ok_or_else(|| polars_err!(NoData: "empty container given"))?,
-    );
+    let mut inputs = inputs.into_iter();
+    let lf = inputs
+        .next()
+        .ok_or_else(|| polars_err!(NoData: "empty container given"))?;
 
     let opt_state = lf.opt_state;
     let cached_arenas = lf.cached_arena.clone();
 
-    let mut lps = Vec::with_capacity(inputs.len());
+    let mut lps = Vec::with_capacity(inputs.size_hint().0 + 1);
     lps.push(lf.logical_plan);
-
-    for lf in &mut inputs[1..] {
-        let lp = std::mem::take(&mut lf.logical_plan);
-        lps.push(lp)
-    }
+    lps.extend(inputs.map(|lf| lf.logical_plan));
 
     let lp = DslPlan::Union { inputs: lps, args };
     Ok(LazyFrame::from_inner(lp, opt_state, cached_arenas))
@@ -40,7 +33,7 @@ pub(crate) fn concat_impl<L: AsRef<[LazyFrame]>>(
 #[cfg(feature = "diagonal_concat")]
 /// Concat [LazyFrame]s diagonally.
 /// Calls [`concat`][concat()] internally.
-pub fn concat_lf_diagonal<L: AsRef<[LazyFrame]>>(
+pub fn concat_lf_diagonal<L: IntoIterator<Item = LazyFrame>>(
     inputs: L,
     mut args: UnionArgs,
 ) -> PolarsResult<LazyFrame> {
@@ -72,7 +65,10 @@ pub fn concat_lf_horizontal<L: AsRef<[LazyFrame]>>(
 }
 
 /// Concat multiple [`LazyFrame`]s vertically.
-pub fn concat<L: AsRef<[LazyFrame]>>(inputs: L, args: UnionArgs) -> PolarsResult<LazyFrame> {
+pub fn concat(
+    inputs: impl IntoIterator<Item = LazyFrame>,
+    args: UnionArgs,
+) -> PolarsResult<LazyFrame> {
     concat_impl(inputs, args)
 }
 
@@ -112,7 +108,7 @@ mod test {
         ]?;
 
         let out = concat_lf_diagonal(
-            &[a.lazy(), b.lazy(), c.lazy()],
+            [a.lazy(), b.lazy(), c.lazy()],
             UnionArgs {
                 rechunk: false,
                 parallel: false,
