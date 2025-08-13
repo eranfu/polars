@@ -8,7 +8,7 @@ pub fn prepare_projection(
     opt_flags: &mut OptFlags,
 ) -> PolarsResult<(Vec<Expr>, Schema)> {
     let exprs = rewrite_projections(exprs, &PlHashSet::new(), schema, opt_flags)?;
-    let schema = expressions_to_schema(&exprs, schema, Context::Default)?;
+    let schema = expressions_to_schema(&exprs, schema)?;
     Ok((exprs, schema))
 }
 
@@ -83,6 +83,7 @@ fn function_input_wildcard_expansion(function: &FunctionExpr) -> FunctionExpansi
             | F::ReduceHorizontal { .. }
             | F::SumHorizontal { .. }
             | F::MeanHorizontal { .. }
+            | F::RowEncode(..)
     );
     let mut allow_empty_inputs = matches!(
         function,
@@ -607,7 +608,7 @@ fn expand_expression_rec(
                             |e| e,
                         )?;
                         for e in tmp_out {
-                            let dtype = e.to_field(schema, Context::Default)?.dtype;
+                            let dtype = e.to_field(schema)?.dtype;
 
                             let DataType::Struct(fields) = dtype else {
                                 polars_bail!(op = "struct.field", &dtype);
@@ -728,10 +729,10 @@ fn expand_expression_rec(
         Expr::AnonymousFunction {
             input,
             function,
-            output_type,
             options,
             fmt_str,
         } => {
+            let function = function.clone().materialize()?;
             if options
                 .flags
                 .contains(FunctionFlags::INPUT_WILDCARD_EXPANSION)
@@ -748,8 +749,7 @@ fn expand_expression_rec(
                 }
                 out.push(Expr::AnonymousFunction {
                     input: expanded_input,
-                    function: function.clone(),
-                    output_type: output_type.clone(),
+                    function: LazySerde::Deserialized(function.deep_clone()),
                     options: *options,
                     fmt_str: fmt_str.clone(),
                 });
@@ -762,8 +762,7 @@ fn expand_expression_rec(
                     opt_flags,
                     |e| Expr::AnonymousFunction {
                         input: e.to_vec(),
-                        function: function.clone(),
-                        output_type: output_type.clone(),
+                        function: LazySerde::Deserialized(function.clone().deep_clone()),
                         options: *options,
                         fmt_str: fmt_str.clone(),
                     },
@@ -792,7 +791,7 @@ fn expand_expression_rec(
 
             for expr in tmp {
                 let expr = Arc::new(expr);
-                let expr_dtype = expr.to_field(schema, Context::Default)?.dtype;
+                let expr_dtype = expr.to_field(schema)?.dtype;
                 let element_dtype = variant.element_dtype(&expr_dtype)?;
                 let evaluation_schema =
                     Schema::from_iter([(PlSmallStr::EMPTY, element_dtype.clone())]);

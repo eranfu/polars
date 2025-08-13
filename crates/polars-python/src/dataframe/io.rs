@@ -12,10 +12,7 @@ use smallvec::SmallVec;
 
 use super::PyDataFrame;
 use crate::conversion::Wrap;
-use crate::file::{
-    EitherRustPythonFile, get_either_file, get_file_like, get_mmap_bytes_reader,
-    get_mmap_bytes_reader_and_path,
-};
+use crate::file::{get_file_like, get_mmap_bytes_reader, get_mmap_bytes_reader_and_path};
 use crate::prelude::PyCompatLevel;
 use crate::utils::EnterPolarsExt;
 
@@ -129,58 +126,6 @@ impl PyDataFrame {
     }
 
     #[staticmethod]
-    #[cfg(feature = "parquet")]
-    #[pyo3(signature = (py_f, columns, projection, n_rows, row_index, low_memory, parallel, use_statistics, rechunk))]
-    pub fn read_parquet(
-        py: Python<'_>,
-        py_f: PyObject,
-        columns: Option<Vec<String>>,
-        projection: Option<Vec<usize>>,
-        n_rows: Option<usize>,
-        row_index: Option<(String, IdxSize)>,
-        low_memory: bool,
-        parallel: Wrap<ParallelStrategy>,
-        use_statistics: bool,
-        rechunk: bool,
-    ) -> PyResult<Self> {
-        use EitherRustPythonFile::*;
-
-        let row_index = row_index.map(|(name, offset)| RowIndex {
-            name: name.into(),
-            offset,
-        });
-
-        _ = use_statistics;
-
-        match get_either_file(py_f, false)? {
-            Py(f) => {
-                let buf = std::io::Cursor::new(f.to_memslice());
-                py.enter_polars_df(move || {
-                    ParquetReader::new(buf)
-                        .with_projection(projection)
-                        .with_columns(columns)
-                        .read_parallel(parallel.0)
-                        .with_slice(n_rows.map(|x| (0, x)))
-                        .with_row_index(row_index)
-                        .set_low_memory(low_memory)
-                        .set_rechunk(rechunk)
-                        .finish()
-                })
-            },
-            Rust(f) => py.enter_polars_df(move || {
-                ParquetReader::new(f)
-                    .with_projection(projection)
-                    .with_columns(columns)
-                    .read_parallel(parallel.0)
-                    .with_slice(n_rows.map(|x| (0, x)))
-                    .with_row_index(row_index)
-                    .set_rechunk(rechunk)
-                    .finish()
-            }),
-        }
-    }
-
-    #[staticmethod]
     #[cfg(feature = "json")]
     #[pyo3(signature = (py_f, infer_schema_length, schema, schema_overrides, sub_json_path))]
     pub fn read_json(
@@ -215,39 +160,6 @@ impl PyDataFrame {
 
             builder.finish()
         })
-    }
-
-    #[staticmethod]
-    #[cfg(feature = "json")]
-    #[pyo3(signature = (py_f, ignore_errors, schema, schema_overrides, sub_json_path))]
-    pub fn read_ndjson(
-        py: Python<'_>,
-        py_f: Bound<PyAny>,
-        ignore_errors: bool,
-        schema: Option<Wrap<Schema>>,
-        schema_overrides: Option<Wrap<Schema>>,
-        sub_json_path: Option<&str>,
-    ) -> PyResult<Self> {
-        let mmap_bytes_r = get_mmap_bytes_reader(&py_f)?;
-
-        let mut builder = JsonReader::new(mmap_bytes_r)
-            .with_json_format(JsonFormat::JsonLines)
-            .with_ignore_errors(ignore_errors);
-
-        if let Some(schema) = schema {
-            builder = builder.with_schema(Arc::new(schema.0));
-        }
-
-        if let Some(schema) = schema_overrides.as_ref() {
-            builder = builder.with_schema_overwrite(&schema.0);
-        }
-        let sub_json_path_vec: SmallVec<[&str; 8]>;
-        if let Some(sub_json_path) = sub_json_path {
-            sub_json_path_vec = sub_json_path.split('/').collect::<SmallVec<[&str; 8]>>();
-            builder = builder.with_sub_json_path(&sub_json_path_vec);
-        }
-
-        py.enter_polars_df(move || builder.finish())
     }
 
     #[staticmethod]
