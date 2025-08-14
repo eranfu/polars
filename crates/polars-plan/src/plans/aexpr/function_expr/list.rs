@@ -87,7 +87,7 @@ impl IRListFunction {
             Max => mapper.map_to_list_and_array_inner_dtype(),
             Mean => mapper.nested_mean_median_type(),
             Median => mapper.nested_mean_median_type(),
-            Std(_) => mapper.moment_dtype(), // Need to also have this sometimes marked as float32 or duration..
+            Std(_) => mapper.moment_dtype(), // Need to also have this sometimes marked as float32 or duration.
             Var(_) => mapper.var_dtype(),
             ArgMin => mapper.with_dtype(IDX_DTYPE),
             ArgMax => mapper.with_dtype(IDX_DTYPE),
@@ -180,7 +180,8 @@ impl IRListFunction {
             L::SetOperation(_) => FunctionOptions::elementwise()
                 .with_casting_rules(CastingRules::Supertype(
                     polars_core::utils::SuperTypeOptions {
-                        flags: SuperTypeFlags::default() | SuperTypeFlags::ALLOW_IMPLODE_LIST,
+                        flags: polars_core::utils::SuperTypeFlags::default()
+                            | polars_core::utils::SuperTypeFlags::ALLOW_IMPLODE_LIST,
                     },
                 ))
                 .with_flags(|f| f & !FunctionFlags::RETURNS_SCALAR),
@@ -435,11 +436,7 @@ pub(super) fn slice(args: &mut [Column]) -> PolarsResult<Column> {
     let mut out: ListChunked = match (offset_s.len(), length_s.len()) {
         (1, 1) => {
             let offset = offset_s.get(0).unwrap().try_extract::<i64>()?;
-            let slice_len = length_s
-                .get(0)
-                .unwrap()
-                .extract::<usize>()
-                .unwrap_or(usize::MAX);
+            let slice_len = length_s.get(0)?.extract::<usize>().unwrap_or(usize::MAX);
             return Ok(list_ca.lst_slice(offset, slice_len).into_column());
         },
         (1, length_slice_len) => {
@@ -448,7 +445,7 @@ pub(super) fn slice(args: &mut [Column]) -> PolarsResult<Column> {
             // cast to i64 as it is more likely that it is that dtype
             // instead of usize/u64 (we never need that max length)
             let length_ca = length_s.cast(&DataType::Int64)?;
-            let length_ca = length_ca.i64().unwrap();
+            let length_ca = length_ca.i64()?;
 
             list_ca
                 .amortized_iter()
@@ -461,13 +458,9 @@ pub(super) fn slice(args: &mut [Column]) -> PolarsResult<Column> {
         },
         (offset_len, 1) => {
             check_slice_arg_shape(offset_len, list_ca.len(), "offset")?;
-            let length_slice = length_s
-                .get(0)
-                .unwrap()
-                .extract::<usize>()
-                .unwrap_or(usize::MAX);
+            let length_slice = length_s.get(0)?.extract::<usize>().unwrap_or(usize::MAX);
             let offset_ca = offset_s.cast(&DataType::Int64)?;
-            let offset_ca = offset_ca.i64().unwrap();
+            let offset_ca = offset_ca.i64()?;
             list_ca
                 .amortized_iter()
                 .zip(offset_ca)
@@ -485,7 +478,7 @@ pub(super) fn slice(args: &mut [Column]) -> PolarsResult<Column> {
             // cast to i64 as it is more likely that it is that dtype
             // instead of usize/u64 (we never need that max length)
             let length_ca = length_s.cast(&DataType::Int64)?;
-            let length_ca = length_ca.i64().unwrap();
+            let length_ca = length_ca.i64()?;
 
             list_ca
                 .amortized_iter()
@@ -515,9 +508,8 @@ pub(super) fn concat(s: &mut [Column]) -> PolarsResult<Column> {
         Some(ca) => ca,
         None => {
             first = first
-                .reshape_list(&[ReshapeDimension::Infer, ReshapeDimension::new_dimension(1)])
-                .unwrap();
-            first.list().unwrap()
+                .reshape_list(&[ReshapeDimension::Infer, ReshapeDimension::new_dimension(1)])?;
+            first.list()?
         },
     }
     .clone();
@@ -535,7 +527,7 @@ pub(super) fn concat(s: &mut [Column]) -> PolarsResult<Column> {
 pub(super) fn get(s: &mut [Column], null_on_oob: bool) -> PolarsResult<Column> {
     let ca = s[0].list()?;
     let index = s[1].cast(&DataType::Int64)?;
-    let index = index.i64().unwrap();
+    let index = index.i64()?;
 
     lst_get(ca, index, null_on_oob)
 }
@@ -579,7 +571,7 @@ pub(super) fn count_matches(args: &[Column]) -> PolarsResult<Column> {
         element.len()
     );
     let ca = s.list()?;
-    list_count_matches(ca, element.get(0).unwrap()).map(Column::from)
+    list_count_matches(ca, element.get(0)?).map(Column::from)
 }
 
 pub(super) fn sum(s: &Column) -> PolarsResult<Column> {
