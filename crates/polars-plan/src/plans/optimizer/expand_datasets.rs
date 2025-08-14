@@ -45,9 +45,10 @@ impl OptimizationRule for ExpandDatasets {
             };
 
             if let crate::dsl::FileScanIR::PythonDataset {
-                    dataset_object,
-                    cached_ir,
-                } = scan_type.as_mut() {
+                dataset_object,
+                cached_ir,
+            } = scan_type.as_mut()
+            {
                 let cached_ir = cached_ir.clone();
                 let mut guard = cached_ir.lock().unwrap();
 
@@ -152,9 +153,7 @@ impl OptimizationRule for ExpandDatasets {
 
                         *scan_type = Box::new(match *resolved_scan_type.clone() {
                             #[cfg(feature = "csv")]
-                            FileScanDsl::Csv { options } => {
-                                crate::dsl::FileScanIR::Csv { options }
-                            },
+                            FileScanDsl::Csv { options } => crate::dsl::FileScanIR::Csv { options },
 
                             #[cfg(feature = "ipc")]
                             FileScanDsl::Ipc { options } => crate::dsl::FileScanIR::Ipc {
@@ -163,11 +162,9 @@ impl OptimizationRule for ExpandDatasets {
                             },
 
                             #[cfg(feature = "parquet")]
-                            FileScanDsl::Parquet { options } => {
-                                crate::dsl::FileScanIR::Parquet {
-                                    options,
-                                    metadata: None,
-                                }
+                            FileScanDsl::Parquet { options } => crate::dsl::FileScanIR::Parquet {
+                                options,
+                                metadata: None,
                             },
 
                             #[cfg(feature = "json")]

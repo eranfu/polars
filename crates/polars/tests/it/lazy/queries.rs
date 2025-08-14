@@ -15,7 +15,7 @@ fn test_with_duplicate_column_empty_df() {
             .collect()
             .unwrap()
             .get_column_names(),
-        &["a"]
+        &["a"],
     );
 }
 

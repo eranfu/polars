@@ -301,7 +301,8 @@ impl ChunkAnyValue for StructChunked {
     }
 
     unsafe fn get_any_value_unchecked(&self, i: usize) -> AnyValue<'_> {
-        let (chunk_idx, idx) = crate::utils::index_to_chunked_index(self.chunks.iter().map(|c| c.len()), i);
+        let (chunk_idx, idx) =
+            crate::utils::index_to_chunked_index(self.chunks.iter().map(|c| c.len()), i);
         if let DataType::Struct(flds) = self.dtype() {
             // SAFETY: we already have a single chunk and we are
             // guarded by the type system.

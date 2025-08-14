@@ -497,7 +497,7 @@ new line character","width"
     assert_eq!(df.shape(), (1, 3));
     assert_equal(
         df.get_column_names(),
-        &["length", "header with\nnew line character", "width"]
+        &["length", "header with\nnew line character", "width"],
     );
 }
 

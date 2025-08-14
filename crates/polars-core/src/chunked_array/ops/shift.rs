@@ -203,9 +203,12 @@ impl ChunkShift<StructType> for StructChunked {
         let fill_length = abs(periods) as usize;
 
         // Go via null, so the cast creates the proper struct type.
-        let fill = crate::series::implementations::null::NullChunked::new(self.name().clone(), fill_length)
-            .cast(self.dtype(), Default::default())
-            .unwrap();
+        let fill = crate::series::implementations::null::NullChunked::new(
+            self.name().clone(),
+            fill_length,
+        )
+        .cast(self.dtype(), Default::default())
+        .unwrap();
         let mut fill = fill.struct_().unwrap().clone();
 
         if periods < 0 {

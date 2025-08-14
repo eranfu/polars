@@ -25,7 +25,10 @@ pub(crate) fn materialize_hive_partitions<D>(
 
         let hive_columns = hive_columns
             .iter()
-            .map(|s| polars_core::frame::column::ScalarColumn::new(s.name().clone(), s.first(), num_rows).into())
+            .map(|s| {
+                polars_core::frame::column::ScalarColumn::new(s.name().clone(), s.first(), num_rows)
+                    .into()
+            })
             .collect::<Vec<polars_core::prelude::Column>>();
 
         if reader_schema.index_of(hive_columns[0].name()).is_none() || df.width() == 0 {

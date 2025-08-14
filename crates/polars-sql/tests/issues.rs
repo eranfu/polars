@@ -196,10 +196,7 @@ fn iss_23134() -> PolarsResult<()> {
         .collect()?;
 
     // Check the result structure
-    let columns: Vec<String> = result3
-        .get_column_names()
-        .map(|s| s.to_string())
-        .collect();
+    let columns: Vec<String> = result3.get_column_names().map(|s| s.to_string()).collect();
     // a and b
     assert_eq!(columns, vec!["a", "b"]);
 

@@ -519,7 +519,7 @@ fn test_joins_with_duplicates() -> PolarsResult<()> {
     // ensure the column names don't get swapped by the drop we do
     assert_equal(
         df_full_outer_join.get_column_names(),
-        &["col1", "int_col", "dbl_col"]
+        &["col1", "int_col", "dbl_col"],
     );
     assert_eq!(df_full_outer_join.height(), 12);
     assert_eq!(df_full_outer_join.column("col1")?.null_count(), 0);

@@ -19,11 +19,8 @@ impl DataFrame {
             Some(name) => {
                 let mut tmp = Vec::<Column>::with_capacity(new_width + 1);
                 tmp.push(
-                    StringChunked::from_iter_values(
-                        name,
-                        self.get_column_names_owned(),
-                    )
-                    .into_column(),
+                    StringChunked::from_iter_values(name, self.get_column_names_owned())
+                        .into_column(),
                 );
                 tmp
             },

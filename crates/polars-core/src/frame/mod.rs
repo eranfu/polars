@@ -881,6 +881,33 @@ impl DataFrame {
         Ok(())
     }
 
+    /// Rename the columns.
+    /// # Example
+    ///
+    /// ```rust
+    /// # use polars_core::prelude::*;
+    /// let mut df: DataFrame = df!("Mathematical set" => ["ℕ", "ℤ", "𝔻", "ℚ", "ℝ", "ℂ"])?;
+    /// df.rename_columns(|_old_name| "Set".into())?;
+    ///
+    /// assert_eq!(df.get_column_names(), &["Set"]);
+    /// # Ok::<(), PolarsError>(())
+    /// ```
+    pub fn rename_columns<F>(&mut self, get_new_name: F)
+    where
+        F: Fn(&PlSmallStr) -> Option<PlSmallStr>,
+    {
+        let mut renamed = false;
+        self.columns.iter_mut().for_each(|col| {
+            if let Some(new_name) = get_new_name(col.name()) {
+                col.rename(new_name);
+                renamed = true;
+            }
+        });
+        if renamed {
+            self.clear_schema();
+        }
+    }
+
     /// Get the data types of the columns in the [`DataFrame`].
     ///
     /// # Example

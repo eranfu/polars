@@ -3,7 +3,7 @@ mod scalar;
 #[cfg(feature = "dtype-categorical")]
 mod categorical;
 
-use std::ops::{ Not};
+use std::ops::Not;
 
 use arrow::array::BooleanArray;
 use arrow::bitmap::{Bitmap, BitmapBuilder};
@@ -856,7 +856,7 @@ where
 }
 
 #[cfg(feature = "dtype-struct")]
-impl ChunkCompareEq<&StructChunked> for StructChunked {    
+impl ChunkCompareEq<&StructChunked> for StructChunked {
     type Item = BooleanChunked;
     fn equal(&self, rhs: &StructChunked) -> BooleanChunked {
         use std::ops::BitAnd;
