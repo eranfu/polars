@@ -162,7 +162,7 @@ impl<T: PolarsDataType> ChunkedArray<T> {
         self
     }
 
-    pub(crate) fn as_any(&self) -> &dyn std::any::Any {
+    pub fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 

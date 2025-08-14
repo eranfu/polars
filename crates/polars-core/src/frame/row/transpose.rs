@@ -21,7 +21,7 @@ impl DataFrame {
                 tmp.push(
                     StringChunked::from_iter_values(
                         name,
-                        self.get_column_names_owned().into_iter(),
+                        self.get_column_names_owned(),
                     )
                     .into_column(),
                 );

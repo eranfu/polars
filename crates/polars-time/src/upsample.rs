@@ -127,11 +127,9 @@ fn upsample_impl(
         df.apply(index_column, |s| {
             s.cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
                 .unwrap()
-        })
-        .unwrap();
+        })?;
         let mut out = upsample_impl(&df, by, index_column, every, stable)?;
-        out.apply(index_column, |s| s.cast(time_type).unwrap())
-            .unwrap();
+        out.apply(index_column, |s| s.cast(time_type).unwrap())?;
         Ok(out)
     } else if matches!(
         time_type,
@@ -144,31 +142,27 @@ fn upsample_impl(
                 .unwrap()
                 .cast(&DataType::Datetime(TimeUnit::Nanoseconds, None))
                 .unwrap()
-        })
-        .unwrap();
+        })?;
         let mut out = upsample_impl(&df, by, index_column, every, stable)?;
-        out.apply(index_column, |s| s.cast(time_type).unwrap())
-            .unwrap();
+        out.apply(index_column, |s| s.cast(time_type).unwrap())?;
         Ok(out)
     } else if matches!(time_type, DataType::Int64) {
         let mut df = source.clone();
         df.apply(index_column, |s| {
             s.cast(&DataType::Datetime(TimeUnit::Nanoseconds, None))
                 .unwrap()
-        })
-        .unwrap();
+        })?;
         let mut out = upsample_impl(&df, by, index_column, every, stable)?;
-        out.apply(index_column, |s| s.cast(time_type).unwrap())
-            .unwrap();
+        out.apply(index_column, |s| s.cast(time_type).unwrap())?;
         Ok(out)
     } else if by.is_empty() {
         let index_column = source.column(index_column)?;
         upsample_single_impl(source, index_column.as_materialized_series(), every)
     } else {
         let gb = if stable {
-            source.group_by_stable(by)
+            source.group_by_stable(&by)
         } else {
-            source.group_by(by)
+            source.group_by(&by)
         };
         // don't parallelize this, this may SO on large data.
         gb?.apply(|df| {
@@ -189,8 +183,8 @@ fn upsample_single_impl(
     use DataType::*;
     match index_column.dtype() {
         Datetime(tu, tz) => {
-            let s = index_column.cast(&Int64).unwrap();
-            let ca = s.i64().unwrap();
+            let s = index_column.cast(&Int64)?;
+            let ca = s.i64()?;
             let first = ca.iter().flatten().next();
             let last = ca.iter().flatten().next_back();
             match (first, last) {
@@ -213,8 +207,8 @@ fn upsample_single_impl(
                     .into_frame();
                     range.join(
                         source,
-                        [index_col_name.clone()],
-                        [index_col_name.clone()],
+                        [index_col_name],
+                        [index_col_name],
                         JoinArgs::new(JoinType::Left),
                         None,
                     )

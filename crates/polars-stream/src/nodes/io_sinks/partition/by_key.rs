@@ -154,7 +154,7 @@ impl SinkNode for PartitionByKeySinkNode {
                         let parallel = false; // We handle parallel processing in the streaming
                         // engine.
                         let partitions = df._partition_by_impl(
-                            &key_cols,
+                            key_cols.iter(),
                             stable,
                             partition_include_key,
                             parallel,
@@ -163,7 +163,7 @@ impl SinkNode for PartitionByKeySinkNode {
                         let partitions = partitions
                             .into_iter()
                             .map(|mut df| {
-                                let keys = df.select_columns(key_cols.iter().cloned())?;
+                                let keys = df.select_columns(key_cols.iter())?;
                                 let keys = keys
                                     .into_iter()
                                     .map(|c| c.head(Some(1)))

@@ -280,7 +280,7 @@ async fn open_new_sink(
                 df.with_column(c.with_name(name))?;
             }
             df.sort_in_place(
-                names,
+                &names,
                 SortMultipleOptions {
                     descending,
                     nulls_last,

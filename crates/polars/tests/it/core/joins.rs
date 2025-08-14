@@ -1,3 +1,4 @@
+use itertools::assert_equal;
 use polars_core::utils::{accumulate_dataframes_vertical, split_df};
 
 use super::*;
@@ -516,7 +517,7 @@ fn test_joins_with_duplicates() -> PolarsResult<()> {
         .unwrap();
 
     // ensure the column names don't get swapped by the drop we do
-    assert_eq!(
+    assert_equal(
         df_full_outer_join.get_column_names(),
         &["col1", "int_col", "dbl_col"]
     );

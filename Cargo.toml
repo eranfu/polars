@@ -10,9 +10,7 @@ members = [
     "pyo3-polars/pyo3-polars",
     "pyo3-polars/pyo3-polars-derive",
 ]
-default-members = [
-    "crates/*",
-]
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "0.50.0"
@@ -54,6 +52,7 @@ hashbrown = { version = "0.15.0", features = ["rayon", "serde"] }
 hex = "0.4.3"
 indexmap = { version = "2", features = ["std", "serde"] }
 log = "0.4"
+itertools = "0.14"
 itoa = "1.0.6"
 libc = "0.2"
 libm = "0.2"
@@ -87,7 +86,11 @@ simd-json = { version = "0.15", features = ["known-key"] }
 simdutf8 = "0.1.4"
 skiplist = "0.6.0"
 slotmap = "1"
-smallvec = { version = "1", features = ["union", "const_generics", "const_new"] }
+smallvec = { version = "1", features = [
+    "union",
+    "const_generics",
+    "const_new",
+] }
 sqlparser = "0.53"
 stacker = "0.1"
 streaming-iterator = "0.1.9"

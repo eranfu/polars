@@ -1,3 +1,4 @@
+use itertools::assert_equal;
 use polars_core::series::IsSorted;
 
 use super::*;
@@ -6,7 +7,7 @@ use super::*;
 fn test_with_duplicate_column_empty_df() {
     let a = Int32Chunked::from_slice("a".into(), &[]);
 
-    assert_eq!(
+    assert_equal(
         DataFrame::new(vec![a.into_column()])
             .unwrap()
             .lazy()

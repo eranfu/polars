@@ -1,5 +1,6 @@
 use std::ops::Not;
 
+use itertools::Itertools;
 use polars_core::datatypes::unpack_dtypes;
 use polars_core::prelude::*;
 use polars_ops::series::is_close;
@@ -704,8 +705,8 @@ fn assert_dataframe_schema_equal(
     let left_schema = left.schema();
     let right_schema = right.schema();
 
-    let ordered_left_cols = left.get_column_names();
-    let ordered_right_cols = right.get_column_names();
+    let ordered_left_cols = left.get_column_names().collect_vec();
+    let ordered_right_cols = right.get_column_names().collect_vec();
 
     let left_set: PlHashSet<&PlSmallStr> = ordered_left_cols.iter().copied().collect();
     let right_set: PlHashSet<&PlSmallStr> = ordered_right_cols.iter().copied().collect();
@@ -852,7 +853,7 @@ pub fn assert_dataframe_equal(
         ));
     }
 
-    let left_cols = left.get_column_names_owned();
+    let left_cols = left.get_column_names();
 
     let (left, right) = if !options.check_row_order {
         (
@@ -863,7 +864,7 @@ pub fn assert_dataframe_equal(
         (left.clone(), right.clone())
     };
 
-    for col in left_cols.iter() {
+    for col in left_cols {
         let s_left = left.column(col)?;
         let s_right = right.column(col)?;
 

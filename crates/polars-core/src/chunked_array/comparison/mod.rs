@@ -3,7 +3,7 @@ mod scalar;
 #[cfg(feature = "dtype-categorical")]
 mod categorical;
 
-use std::ops::{BitAnd, Not};
+use std::ops::{ Not};
 
 use arrow::array::BooleanArray;
 use arrow::bitmap::{Bitmap, BitmapBuilder};
@@ -14,7 +14,6 @@ use polars_compute::comparisons::{TotalEqKernel, TotalOrdKernel};
 use crate::prelude::*;
 use crate::series::IsSorted;
 use crate::series::implementations::null::NullChunked;
-use crate::utils::align_chunks_binary;
 
 impl<T> ChunkCompareEq<&ChunkedArray<T>> for ChunkedArray<T>
 where
@@ -791,7 +790,7 @@ where
     if (a.len() != b.len() && !broadcasts) || a.struct_fields().len() != b.struct_fields().len() {
         BooleanChunked::full(PlSmallStr::EMPTY, op_is_ne, a.len())
     } else {
-        let (a, b) = align_chunks_binary(a, b);
+        let (a, b) = crate::utils::align_chunks_binary(a, b);
 
         let mut out = a
             .fields_as_series()
@@ -857,9 +856,10 @@ where
 }
 
 #[cfg(feature = "dtype-struct")]
-impl ChunkCompareEq<&StructChunked> for StructChunked {
+impl ChunkCompareEq<&StructChunked> for StructChunked {    
     type Item = BooleanChunked;
     fn equal(&self, rhs: &StructChunked) -> BooleanChunked {
+        use std::ops::BitAnd;
         struct_helper(
             self,
             rhs,
@@ -871,6 +871,7 @@ impl ChunkCompareEq<&StructChunked> for StructChunked {
     }
 
     fn equal_missing(&self, rhs: &StructChunked) -> BooleanChunked {
+        use std::ops::BitAnd;
         struct_helper(
             self,
             rhs,

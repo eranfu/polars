@@ -63,7 +63,7 @@ fn restore_logical_type(s: &Series, logical_type: &DataType) -> Series {
     }
 }
 
-/// Do a pivot operation based on the group key, a pivot column and an aggregation function on the values column.
+/// Do a pivot operation based on the group key, a pivot column and an aggregation function on the values' column.
 ///
 /// # Note
 /// Polars'/arrow memory is not ideal for transposing operations like pivots.
@@ -99,7 +99,7 @@ where
     )
 }
 
-/// Do a pivot operation based on the group key, a pivot column and an aggregation function on the values column.
+/// Do a pivot operation based on the group key, a pivot column and an aggregation function on the values' column.
 ///
 /// # Note
 /// Polars'/arrow memory is not ideal for transposing operations like pivots.
@@ -162,7 +162,6 @@ where
             let index: Vec<PlSmallStr> = index.into_iter().map(Into::into).collect();
             let values = df
                 .get_column_names()
-                .into_iter()
                 .filter(|c| !(index.contains(c) | on.contains(c)))
                 .cloned()
                 .collect();
@@ -172,7 +171,6 @@ where
             let values: Vec<PlSmallStr> = values.into_iter().map(Into::into).collect();
             let index = df
                 .get_column_names()
-                .into_iter()
                 .filter(|c| !(values.contains(c) | on.contains(c)))
                 .cloned()
                 .collect();
@@ -216,9 +214,8 @@ fn pivot_impl(
             already exists in the DataFrame. Please rename it prior to calling `pivot`.")
         }
         // @scalar-opt
-        let columns_struct = StructChunked::from_columns(column.clone(), fields[0].len(), fields)
-            .unwrap()
-            .into_column();
+        let columns_struct =
+            StructChunked::from_columns(column.clone(), fields[0].len(), fields)?.into_column();
         let mut binding = pivot_df.clone();
         let pivot_df = unsafe { binding.with_column_unchecked(columns_struct) };
         pivot_impl_single_column(
@@ -256,10 +253,9 @@ fn pivot_impl_single_column(
     let mut final_cols = vec![];
     let mut count = 0;
     let out: PolarsResult<()> = POOL.install(|| {
-        let mut group_by = index.to_vec();
-        group_by.push(column.clone());
-
-        let groups = pivot_df.group_by_stable(group_by)?.take_groups();
+        let groups = pivot_df
+            .group_by_stable(index.iter().chain(std::iter::once(column)))?
+            .take_groups();
 
         let (col, row) = POOL.join(
             || positioning::compute_col_idx(pivot_df, column, &groups),

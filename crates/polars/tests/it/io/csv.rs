@@ -1,6 +1,7 @@
 use std::io::Cursor;
 use std::num::NonZeroUsize;
 
+use itertools::assert_equal;
 use polars::io::RowIndex;
 use polars_core::utils::concat_df;
 
@@ -494,7 +495,7 @@ new line character","width"
         .finish()
         .unwrap();
     assert_eq!(df.shape(), (1, 3));
-    assert_eq!(
+    assert_equal(
         df.get_column_names(),
         &["length", "header with\nnew line character", "width"]
     );
@@ -993,7 +994,7 @@ fn test_whitespace_separators() -> PolarsResult<()> {
             .finish()?;
 
         assert_eq!(df.shape(), (2, 4));
-        assert_eq!(df.get_column_names(), &["", "a", "b", "c"]);
+        assert_equal(df.get_column_names(), &["", "a", "b", "c"]);
     }
 
     Ok(())
@@ -1128,14 +1129,14 @@ foo,bar
         .with_skip_rows(2)
         .into_reader_with_file_handle(file.clone())
         .finish()?;
-    assert_eq!(df.get_column_names(), &["foo", "bar"]);
+    assert_equal(df.get_column_names(), &["foo", "bar"]);
     assert_eq!(df.shape(), (3, 2));
     let df = CsvReadOptions::default()
         .with_skip_rows(2)
         .with_skip_rows_after_header(2)
         .into_reader_with_file_handle(file.clone())
         .finish()?;
-    assert_eq!(df.get_column_names(), &["foo", "bar"]);
+    assert_equal(df.get_column_names(), &["foo", "bar"]);
     assert_eq!(df.shape(), (1, 2));
     let df = CsvReadOptions::default()
         .map_parse_options(|parse_options| parse_options.with_truncate_ragged_lines(true))

@@ -231,7 +231,7 @@ fn test_parquet() {
     if let Ok(r) = polars_utils::open_file("data/simple.parquet".as_ref()) {
         let reader = ParquetReader::new(r);
         let df = reader.finish().unwrap();
-        assert_eq!(df.get_column_names(), ["a", "b"]);
+        itertools::assert_equal(df.get_column_names(), ["a", "b"]);
         assert_eq!(df.shape(), (3, 2));
     }
 }

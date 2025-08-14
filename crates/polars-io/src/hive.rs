@@ -1,8 +1,3 @@
-use polars_core::frame::DataFrame;
-use polars_core::frame::column::ScalarColumn;
-use polars_core::prelude::Column;
-use polars_core::series::Series;
-
 /// Materializes hive partitions.
 /// We have a special num_rows arg, as df can be empty when a projection contains
 /// only hive partition columns.
@@ -14,10 +9,11 @@ use polars_core::series::Series;
 /// # Safety
 ///
 /// num_rows equals the height of the df when the df height is non-zero.
+#[cfg(any(feature = "ipc", feature = "parquet"))]
 pub(crate) fn materialize_hive_partitions<D>(
-    df: &mut DataFrame,
+    df: &mut polars_core::frame::DataFrame,
     reader_schema: &polars_schema::Schema<D>,
-    hive_partition_columns: Option<&[Series]>,
+    hive_partition_columns: Option<&[polars_core::series::Series]>,
 ) {
     let num_rows = df.height();
 
@@ -29,8 +25,8 @@ pub(crate) fn materialize_hive_partitions<D>(
 
         let hive_columns = hive_columns
             .iter()
-            .map(|s| ScalarColumn::new(s.name().clone(), s.first(), num_rows).into())
-            .collect::<Vec<Column>>();
+            .map(|s| polars_core::frame::column::ScalarColumn::new(s.name().clone(), s.first(), num_rows).into())
+            .collect::<Vec<polars_core::prelude::Column>>();
 
         if reader_schema.index_of(hive_columns[0].name()).is_none() || df.width() == 0 {
             // Fast-path - all hive columns are at the end
@@ -51,7 +47,7 @@ pub(crate) fn materialize_hive_partitions<D>(
             &mut merged,
         );
 
-        *df = unsafe { DataFrame::new_no_checks(num_rows, merged) };
+        *df = unsafe { polars_core::frame::DataFrame::new_no_checks(num_rows, merged) };
     }
 }
 
@@ -72,10 +68,10 @@ pub(crate) fn materialize_hive_partitions<D>(
 /// # Panics
 /// Panics if either `cols_lhs` or `cols_rhs` is empty.
 pub fn merge_sorted_to_schema_order<'a, D>(
-    cols_lhs: &'a mut dyn Iterator<Item = Column>,
-    cols_rhs: &'a mut dyn Iterator<Item = Column>,
+    cols_lhs: &'a mut dyn Iterator<Item = polars_core::prelude::Column>,
+    cols_rhs: &'a mut dyn Iterator<Item = polars_core::prelude::Column>,
     schema: &polars_schema::Schema<D>,
-    output: &'a mut Vec<Column>,
+    output: &'a mut Vec<polars_core::prelude::Column>,
 ) {
     merge_sorted_to_schema_order_impl(cols_lhs, cols_rhs, output, &|v| schema.index_of(v.name()))
 }

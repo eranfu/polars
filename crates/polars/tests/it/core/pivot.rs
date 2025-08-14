@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use itertools::assert_equal;
 use polars::prelude::*;
 use polars_lazy::frame::pivot::PivotExpr;
 use polars_ops::pivot::{PivotAgg, pivot, pivot_stable};
@@ -72,7 +73,7 @@ fn test_pivot_old() {
         None,
     )
     .unwrap();
-    assert_eq!(pvt.get_column_names(), &["index", "k", "l", "m"]);
+    assert_equal(pvt.get_column_names(), &["index", "k", "l", "m"]);
     assert_eq!(
         Vec::from(&pvt.column("m").unwrap().i32().unwrap().sort(false)),
         &[Some(0), Some(0), Some(6)]
@@ -156,7 +157,7 @@ fn test_pivot_categorical() -> PolarsResult<()> {
         Some(PivotAgg(Arc::new(PivotExpr::from_expr(col("").len())))),
         None,
     )?;
-    assert_eq!(out.get_column_names(), &["index", "a", "b", "c"]);
+    assert_equal(out.get_column_names(), &["index", "a", "b", "c"]);
 
     Ok(())
 }

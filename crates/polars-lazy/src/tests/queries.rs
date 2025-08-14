@@ -1,3 +1,4 @@
+use itertools::assert_equal;
 #[cfg(feature = "diff")]
 use polars_core::series::ops::NullBehavior;
 
@@ -42,7 +43,7 @@ fn test_lazy_alias() {
         .select([col("sepal_width").alias("petals"), col("sepal_width")])
         .collect()
         .unwrap();
-    assert_eq!(new.get_column_names(), &["petals", "sepal_width"]);
+    assert_equal(new.get_column_names(), &["petals", "sepal_width"]);
 }
 
 #[test]
@@ -635,7 +636,7 @@ fn test_lazy_fill_null() {
     }
     .unwrap();
     assert!(out.equals(&correct));
-    assert_eq!(out.get_column_names(), vec!["a", "b"])
+    assert_equal(out.get_column_names(), vec!["a", "b"])
 }
 
 #[test]
@@ -1237,7 +1238,7 @@ fn test_keep_name() -> PolarsResult<()> {
         ])
         .collect()?;
 
-    assert_eq!(out.get_column_names(), &["a", "b"]);
+    assert_equal(out.get_column_names(), &["a", "b"]);
     Ok(())
 }
 
@@ -1254,7 +1255,7 @@ fn test_exclude() -> PolarsResult<()> {
         .select([all().exclude_cols(["b"]).as_expr()])
         .collect()?;
 
-    assert_eq!(out.get_column_names(), &["a", "c"]);
+    assert_equal(out.get_column_names(), &["a", "c"]);
     Ok(())
 }
 
@@ -1269,7 +1270,7 @@ fn test_regex_selection() -> PolarsResult<()> {
 
     let out = df.lazy().select([col("^a.*o.*$")]).collect()?;
 
-    assert_eq!(out.get_column_names(), &["anton", "arnold schwars"]);
+    assert_equal(out.get_column_names(), &["anton", "arnold schwars"]);
     Ok(())
 }
 
@@ -1582,7 +1583,7 @@ fn test_exclude_regex() -> PolarsResult<()> {
         .select([(all() - Selector::Matches("^(fruits|cars)$".into())).as_expr()])
         .collect()?;
 
-    assert_eq!(out.get_column_names(), &["A", "B"]);
+    assert_equal(out.get_column_names(), &["A", "B"]);
     Ok(())
 }
 

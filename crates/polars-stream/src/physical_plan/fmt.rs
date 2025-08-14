@@ -165,7 +165,15 @@ fn visualize_plan_rec(
         PhysNodeKind::InMemorySource { df } => (
             format!(
                 "in-memory-source\\ncols: {}",
-                df.get_column_names_owned().join(", ")
+                df.get_column_names_str().fold(String::new(), |mut acc, c| {
+                    if acc.is_empty() {
+                        c.to_string()
+                    } else {
+                        acc.push(',');
+                        acc.push_str(c);
+                        acc
+                    }
+                })
             ),
             &[][..],
         ),

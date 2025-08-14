@@ -136,7 +136,7 @@ impl PyDataFrame {
 
     /// Get column names
     pub fn columns(&self) -> Vec<&str> {
-        self.df.get_column_names_str()
+        self.df.get_column_names_str().collect()
     }
 
     /// set column names

@@ -115,21 +115,23 @@ impl DataFrame {
     ///     .sum()
     /// }
     /// ```
-    pub fn group_by<I, S>(&self, by: I) -> PolarsResult<GroupBy<'_>>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<PlSmallStr>,
-    {
+    pub fn group_by<'a>(
+        &self,
+        by: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+    ) -> PolarsResult<GroupBy<'_>> {
         let selected_keys = self.select_columns(by)?;
         self.group_by_with_series(selected_keys, true, false)
     }
 
     /// Group DataFrame using a Series column.
     /// The groups are ordered by their smallest row index.
-    pub fn group_by_stable<I, S>(&self, by: I) -> PolarsResult<GroupBy<'_>>
+    pub fn group_by_stable<'a, S>(
+        &self,
+        by: impl IntoIterator<Item = &'a S>,
+    ) -> PolarsResult<GroupBy<'_>>
     where
-        I: IntoIterator<Item = S>,
-        S: Into<PlSmallStr>,
+        S: 'a + AsRef<str> + ?Sized,
+        &'a S: Into<PlSmallStr>,
     {
         let selected_keys = self.select_columns(by)?;
         self.group_by_with_series(selected_keys, true, true)
@@ -310,18 +312,12 @@ impl<'a> GroupBy<'a> {
         let keys = self.keys();
 
         let agg_col = match &self.selected_agg {
-            Some(selection) => self.df.select_columns_impl(selection.as_slice()),
+            Some(selection) => self.df.select_columns_impl(selection),
             None => {
                 let by: Vec<_> = self.selected_keys.iter().map(|s| s.name()).collect();
-                let selection = self
-                    .df
-                    .iter()
-                    .map(|s| s.name())
-                    .filter(|a| !by.contains(a))
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let selection = self.df.iter().map(|s| s.name()).filter(|a| !by.contains(a));
 
-                self.df.select_columns_impl(selection.as_slice())
+                self.df.select_columns_impl(selection)
             },
         }?;
 

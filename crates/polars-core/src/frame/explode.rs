@@ -182,12 +182,11 @@ impl DataFrame {
     ///  | 2   | 3   | 1   |
     ///  +-----+-----+-----+
     /// ```
-    pub fn explode<I, S>(&self, columns: I) -> PolarsResult<DataFrame>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<PlSmallStr>,
-    {
-        // We need to sort the column by order of original occurrence. Otherwise the insert by index
+    pub fn explode<'a>(
+        &self,
+        columns: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+    ) -> PolarsResult<DataFrame> {
+        // We need to sort the column by order of original occurrence. Otherwise, the insert by index
         // below will panic
         let columns = self.select_columns(columns)?;
         self.explode_impl(columns)

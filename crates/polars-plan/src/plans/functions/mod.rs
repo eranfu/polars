@@ -82,12 +82,12 @@ impl PartialEq for FunctionIR {
             (Rechunk, Rechunk) => true,
             (
                 FastCount {
-                    sources: srcs_l, ..
+                    sources: sources_l, ..
                 },
                 FastCount {
-                    sources: srcs_r, ..
+                    sources: sources_r, ..
                 },
-            ) => srcs_l == srcs_r,
+            ) => sources_l == sources_r,
             (Explode { columns: l, .. }, Explode { columns: r, .. }) => l == r,
             #[cfg(feature = "pivot")]
             (Unpivot { args: l, .. }, Unpivot { args: r, .. }) => l == r,
@@ -218,7 +218,7 @@ impl FunctionIR {
             Unnest { columns: _columns } => {
                 feature_gated!("dtype-struct", df.unnest(_columns.iter().cloned()))
             },
-            Explode { columns, .. } => df.explode(columns.iter().cloned()),
+            Explode { columns, .. } => df.explode(columns.iter()),
             #[cfg(feature = "pivot")]
             Unpivot { args, .. } => {
                 use polars_ops::pivot::UnpivotDF;

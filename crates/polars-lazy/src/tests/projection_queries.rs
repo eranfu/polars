@@ -1,3 +1,4 @@
+use itertools::assert_equal;
 use polars_ops::frame::JoinCoalesce;
 
 use super::*;
@@ -106,9 +107,9 @@ fn scan_join_same_file() -> PolarsResult<()> {
             )
             .with_comm_subplan_elim(cse);
         let out = q.collect()?;
-        assert_eq!(
+        assert_equal(
             out.get_column_names(),
-            &["category", "calories", "fats_g", "sugars_g"]
+            &["category", "calories", "fats_g", "sugars_g"],
         );
     }
     Ok(())

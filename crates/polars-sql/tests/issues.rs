@@ -198,7 +198,6 @@ fn iss_23134() -> PolarsResult<()> {
     // Check the result structure
     let columns: Vec<String> = result3
         .get_column_names()
-        .into_iter()
         .map(|s| s.to_string())
         .collect();
     // a and b

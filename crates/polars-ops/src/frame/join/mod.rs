@@ -83,11 +83,11 @@ pub trait DataFrameJoinOps: IntoDf {
     /// | Pear   | 12                   | 115                 |
     /// +--------+----------------------+---------------------+
     /// ```
-    fn join(
+    fn join<'a>(
         &self,
         other: &DataFrame,
-        left_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
-        right_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
+        left_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+        right_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
         args: JoinArgs,
         options: Option<JoinTypeOptions>,
     ) -> PolarsResult<DataFrame> {
@@ -440,11 +440,11 @@ pub trait DataFrameJoinOps: IntoDf {
     ///     left.inner_join(right, ["join_column_left"], ["join_column_right"])
     /// }
     /// ```
-    fn inner_join(
+    fn inner_join<'a>(
         &self,
         other: &DataFrame,
-        left_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
-        right_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
+        left_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+        right_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
     ) -> PolarsResult<DataFrame> {
         self.join(
             other,
@@ -490,11 +490,11 @@ pub trait DataFrameJoinOps: IntoDf {
     /// | 100             | null   |
     /// +-----------------+--------+
     /// ```
-    fn left_join(
+    fn left_join<'a>(
         &self,
         other: &DataFrame,
-        left_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
-        right_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
+        left_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+        right_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
     ) -> PolarsResult<DataFrame> {
         self.join(
             other,
@@ -515,11 +515,11 @@ pub trait DataFrameJoinOps: IntoDf {
     ///     left.full_join(right, ["join_column_left"], ["join_column_right"])
     /// }
     /// ```
-    fn full_join(
+    fn full_join<'a>(
         &self,
         other: &DataFrame,
-        left_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
-        right_on: impl IntoIterator<Item = impl Into<PlSmallStr>>,
+        left_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
+        right_on: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)>,
     ) -> PolarsResult<DataFrame> {
         self.join(
             other,

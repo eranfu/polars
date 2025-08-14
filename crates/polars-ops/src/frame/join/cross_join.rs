@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use polars_core::utils::{
     _set_partition_size, CustomIterTools, NoNull, accumulate_dataframes_vertical_unchecked,
     concat_df_unchecked, split,
@@ -161,7 +162,7 @@ pub(super) fn fused_cross_filter(
 
     let names = _finish_join(left.clear(), right.clear(), suffix)?;
     let rename_names = names.get_column_names();
-    let rename_names = &rename_names[left.width()..];
+    let rename_names = rename_names.skip(left.width()).collect_vec();
 
     let dfs = POOL
         .install(|| {
@@ -169,8 +170,8 @@ pub(super) fn fused_cross_filter(
                 let (mut left, right) = cross_join_dfs(left, right, None, false)?;
                 let mut right_columns = right.take_columns();
 
-                for (c, name) in right_columns.iter_mut().zip(rename_names) {
-                    c.rename((*name).clone());
+                for (c, &name) in right_columns.iter_mut().zip(&rename_names) {
+                    c.rename(name.clone());
                 }
 
                 unsafe { left.hstack_mut_unchecked(&right_columns) };

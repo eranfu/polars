@@ -1,3 +1,5 @@
+use itertools::assert_equal;
+
 use super::*;
 
 #[cfg(feature = "parquet")]
@@ -301,7 +303,7 @@ fn test_lazy_filter_and_rename() {
     // the rename function should not interfere with the predicate pushdown
     assert!(predicate_at_scan(lf.clone()));
 
-    assert_eq!(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
+    assert_equal(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
 }
 
 #[test]

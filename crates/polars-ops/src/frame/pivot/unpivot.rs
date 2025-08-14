@@ -145,7 +145,7 @@ pub trait UnpivotDF: IntoDf {
         // The column name of the variable that is unpivoted
         let mut variable_col = MutablePlString::with_capacity(len * on.len() + 1);
         // prepare ids
-        let ids_ = self_.select_with_schema_unchecked(index, schema)?;
+        let ids_ = self_.select_with_schema_unchecked(&index, schema)?;
         let mut ids = ids_.clone();
         if ids.width() > 0 {
             for _ in 0..on.len() - 1 {
@@ -199,6 +199,7 @@ impl UnpivotDF for DataFrame {}
 
 #[cfg(test)]
 mod test {
+    use itertools::assert_equal;
     use polars_core::df;
     use polars_core::utils::Container;
 
@@ -210,14 +211,13 @@ mod test {
          "B" => &[1, 3, 5],
          "C" => &[10, 11, 12],
          "D" => &[2, 4, 6]
-        )
-        .unwrap();
+        )?;
 
         // Specify on and index
         let unpivoted = df.unpivot(["C", "D"], ["A", "B"])?;
-        assert_eq!(
+        assert_equal(
             unpivoted.get_column_names(),
-            &["A", "B", "variable", "value"]
+            &["A", "B", "variable", "value"],
         );
         assert_eq!(
             Vec::from(unpivoted.column("value")?.i32()?),
@@ -231,10 +231,10 @@ mod test {
             variable_name: Some("custom_variable".into()),
             value_name: Some("custom_value".into()),
         };
-        let unpivoted = df.unpivot2(args).unwrap();
-        assert_eq!(
+        let unpivoted = df.unpivot2(args)?;
+        assert_equal(
             unpivoted.get_column_names(),
-            &["A", "B", "custom_variable", "custom_value"]
+            &["A", "B", "custom_variable", "custom_value"],
         );
 
         // Specify neither on nor index
@@ -244,8 +244,8 @@ mod test {
             ..Default::default()
         };
 
-        let unpivoted = df.unpivot2(args).unwrap();
-        assert_eq!(unpivoted.get_column_names(), &["variable", "value"]);
+        let unpivoted = df.unpivot2(args)?;
+        assert_equal(unpivoted.get_column_names(), &["variable", "value"]);
         let value = unpivoted.column("value")?;
         // String because of supertype
         let value = value.str()?;
@@ -264,8 +264,8 @@ mod test {
             ..Default::default()
         };
 
-        let unpivoted = df.unpivot2(args).unwrap();
-        assert_eq!(unpivoted.get_column_names(), &["A", "variable", "value"]);
+        let unpivoted = df.unpivot2(args)?;
+        assert_equal(unpivoted.get_column_names(), &["A", "variable", "value"]);
         let value = unpivoted.column("value")?;
         let value = value.i32()?;
         let value = value.into_no_null_iter().collect::<Vec<_>>();
@@ -282,10 +282,10 @@ mod test {
             index: vec!["A".into(), "B".into(), "C".into(), "D".into()],
             ..Default::default()
         };
-        let unpivoted = df.unpivot2(args).unwrap();
-        assert_eq!(
+        let unpivoted = df.unpivot2(args)?;
+        assert_equal(
             unpivoted.get_column_names(),
-            &["A", "B", "C", "D", "variable", "value"]
+            &["A", "B", "C", "D", "variable", "value"],
         );
         assert_eq!(unpivoted.len(), 0);
 

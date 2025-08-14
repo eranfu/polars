@@ -48,7 +48,7 @@ pub trait SeriesMethods: SeriesSealed {
         let df = unsafe { DataFrame::new_no_checks(height, cols) };
         if sort {
             df.sort(
-                [name],
+                &[name],
                 SortMultipleOptions::default()
                     .with_order_descending(true)
                     .with_multithreaded(parallel),
@@ -109,7 +109,7 @@ pub trait SeriesMethods: SeriesSealed {
 
         let s_len = s.len();
         if null_count == s_len {
-            // All nulls is all equal
+            // All nulls are all equal
             return Ok(true);
         }
         // Check if nulls are in the right location.

@@ -157,6 +157,7 @@ impl<'a> CoreReader<'a> {
         row_index: Option<RowIndex>,
         raise_if_empty: bool,
     ) -> PolarsResult<CoreReader<'a>> {
+        #[cfg(feature = "decompress")]
         let separator = parse_options.separator;
 
         #[cfg(feature = "decompress")]

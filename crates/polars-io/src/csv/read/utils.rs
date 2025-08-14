@@ -6,7 +6,6 @@ use std::mem::MaybeUninit;
 use super::parser::next_line_position;
 #[cfg(feature = "decompress")]
 use super::parser::next_line_position_naive;
-use super::splitfields::SplitFields;
 
 /// TODO: Remove this in favor of parallel CountLines::analyze_chunk
 ///
@@ -85,7 +84,7 @@ fn decompress_impl<R: Read>(
                     }
                     // now that we have enough, we compute the number of fields (also takes embedding into account)
                     expected_fields =
-                        SplitFields::new(&out, separator, quote_char, eol_char).count();
+                        super::splitfields::SplitFields::new(&out, separator, quote_char, eol_char).count();
                     break;
                 }
             }

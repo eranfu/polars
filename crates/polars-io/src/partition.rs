@@ -42,10 +42,10 @@ impl WriteDataFrameToFile for IpcWriterOptions {
 }
 
 /// Write a partitioned parquet dataset. This functionality is unstable.
-pub fn write_partitioned_dataset(
+pub fn write_partitioned_dataset<'a>(
     df: &mut DataFrame,
     addr: PlPathRef<'_>,
-    partition_by: Vec<PlSmallStr>,
+    partition_by: impl IntoIterator<Item = &'a (impl 'a + AsRef<str> + ?Sized)> + Clone,
     file_write_options: &(dyn WriteDataFrameToFile + Send + Sync),
     cloud_options: Option<&CloudOptions>,
     chunk_size: usize,
@@ -60,9 +60,11 @@ pub fn write_partitioned_dataset(
         let schema = &df.schema();
 
         let partition_by_col_idx = partition_by
-            .iter()
+            .clone()
+            .into_iter()
             .map(|x| {
-                let Some(i) = schema.index_of(x.as_str()) else {
+                let x = x.as_ref();
+                let Some(i) = schema.index_of(x) else {
                     polars_bail!(col_not_found = x)
                 };
                 Ok(i)
