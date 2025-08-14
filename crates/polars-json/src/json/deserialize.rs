@@ -454,13 +454,12 @@ fn check_err_idx<'a>(
     type_name: &'static str,
 ) -> PolarsResult<()> {
     if err_idx != rows.len() {
-        polars_bail!(
-            ComputeError:
-            r#"error deserializing value "{:?}" as {}. \
-            Try increasing `infer_schema_length` or specifying a schema.
-            "#,
-            rows[err_idx].borrow(), type_name,
-        )
+        log::debug!(
+            "error deserializing value {:?} as {}. idx: {}",
+            rows[err_idx].borrow(),
+            type_name,
+            err_idx
+        );
     }
 
     Ok(())

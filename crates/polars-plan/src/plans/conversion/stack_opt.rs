@@ -106,11 +106,13 @@ impl ConversionOptimizer {
             get_input_schema(ir_arena, current_ir_node)
         };
         let plan = ir_arena.get(current_ir_node);
-        let mut ctx = OptimizeExprContext {
+        let ctx = OptimizeExprContext {
             in_filter: matches!(plan, IR::Filter { .. }),
             has_inputs: !get_input(ir_arena, current_ir_node).is_empty(),
             ..Default::default()
         };
+        #[cfg(feature = "python")]
+        let mut ctx = ctx;
         #[cfg(feature = "python")]
         {
             use crate::dsl::python_dsl::PythonScanSource;

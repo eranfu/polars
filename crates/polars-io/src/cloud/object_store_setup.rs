@@ -101,6 +101,7 @@ pub(crate) struct PolarsObjectStoreBuilder {
 }
 
 impl PolarsObjectStoreBuilder {
+    #[allow(unused_variables)]
     pub(super) async fn build_impl(
         &self,
         // Whether to clear cached credentials for Python credential providers.

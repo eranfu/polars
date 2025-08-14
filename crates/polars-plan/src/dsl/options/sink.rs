@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use polars_core::error::PolarsResult;
 use polars_core::frame::DataFrame;
-use polars_core::prelude::DataType;
 use polars_core::scalar::Scalar;
 use polars_io::cloud::CloudOptions;
 use polars_io::utils::file::{DynWriteable, Writeable};
@@ -245,7 +244,7 @@ impl PartitionTargetContextKey {
             .raw_value
             .clone()
             .into_series(PlSmallStr::EMPTY)
-            .strict_cast(&DataType::String)
+            .strict_cast(&polars_core::prelude::DataType::String)
             .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(err.to_string()))?;
         let value = value.str().unwrap();
         let value = value.get(0).unwrap_or("null").as_bytes();

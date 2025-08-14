@@ -3282,6 +3282,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap 2.10.0",
  "itoa",
+ "log",
  "num-traits",
  "polars-arrow",
  "polars-compute",

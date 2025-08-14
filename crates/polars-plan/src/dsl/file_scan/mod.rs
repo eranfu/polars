@@ -1,5 +1,4 @@
 use std::hash::Hash;
-use std::sync::Mutex;
 
 use deletion::DeletionFilesList;
 use polars_core::schema::iceberg::IcebergSchemaRef;
@@ -95,7 +94,7 @@ pub enum FileScanIR {
     PythonDataset {
         dataset_object: Arc<python_dataset::PythonDatasetProvider>,
         #[cfg_attr(any(feature = "serde", feature = "dsl-schema"), serde(skip, default))]
-        cached_ir: Arc<Mutex<Option<ExpandedDataset>>>,
+        cached_ir: Arc<std::sync::Mutex<Option<ExpandedDataset>>>,
     },
 
     #[cfg_attr(any(feature = "serde", feature = "dsl-schema"), serde(skip))]

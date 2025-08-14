@@ -1,7 +1,6 @@
 #[cfg(feature = "cov")]
 use std::ops::BitAnd;
 
-use polars_core::utils::Container;
 use polars_time::chunkedarray::*;
 
 use super::*;

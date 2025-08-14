@@ -714,7 +714,7 @@ impl CloudOptions {
 
     /// Python passes a credential provider builder that needs to be called to get the actual credential
     /// provider.
-    #[cfg(feature = "cloud")]
+    #[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
     fn initialized_credential_provider(
         &self,
         clear_cached_credentials: bool,

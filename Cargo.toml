@@ -1,17 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/*",
-  "docs/source/src/rust",
-  "py-polars",
-  "pyo3-polars/example/derive_expression/expression_lib",
-  "pyo3-polars/example/extend_polars_python_dispatch/extend_polars",
-  "pyo3-polars/example/io_plugin/io_plugin",
-  "pyo3-polars/pyo3-polars",
-  "pyo3-polars/pyo3-polars-derive",
+    "crates/*",
+    "docs/source/src/rust",
+    "py-polars",
+    "pyo3-polars/example/derive_expression/expression_lib",
+    "pyo3-polars/example/extend_polars_python_dispatch/extend_polars",
+    "pyo3-polars/example/io_plugin/io_plugin",
+    "pyo3-polars/pyo3-polars",
+    "pyo3-polars/pyo3-polars-derive",
 ]
 default-members = [
-  "crates/*",
+    "crates/*",
 ]
 
 [workspace.package]
@@ -53,6 +53,7 @@ futures = "0.3.25"
 hashbrown = { version = "0.15.0", features = ["rayon", "serde"] }
 hex = "0.4.3"
 indexmap = { version = "2", features = ["std", "serde"] }
+log = "0.4"
 itoa = "1.0.6"
 libc = "0.2"
 libm = "0.2"
@@ -139,12 +140,12 @@ version = "0.50.0"
 path = "crates/polars-arrow"
 default-features = false
 features = [
-  "compute_aggregate",
-  "compute_arithmetics",
-  "compute_bitwise",
-  "compute_boolean",
-  "compute_boolean_kleene",
-  "compute_comparison",
+    "compute_aggregate",
+    "compute_arithmetics",
+    "compute_bitwise",
+    "compute_boolean",
+    "compute_boolean_kleene",
+    "compute_comparison",
 ]
 
 [workspace.lints.clippy]

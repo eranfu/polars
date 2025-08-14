@@ -3,17 +3,14 @@ use std::future::Future;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 #[cfg(feature = "aws")]
 pub use object_store::aws::AwsCredential;
 #[cfg(feature = "azure")]
 pub use object_store::azure::AzureCredential;
 #[cfg(feature = "gcp")]
 pub use object_store::gcp::GcpCredential;
-use polars_core::config;
-use polars_error::{PolarsResult, polars_bail};
+use polars_error::PolarsResult;
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "python")]
 use polars_utils::python_function::PythonObject;
@@ -65,6 +62,13 @@ impl PlCredentialProvider {
     /// credential provider.
     ///
     /// This returns `Option` as the auto-initialization case is fallible and falls back to None.
+    #[cfg(any(
+        feature = "python",
+        feature = "aws",
+        feature = "azure",
+        feature = "gcp"
+    ))]
+    #[allow(unused_variables)]
     pub(crate) fn try_into_initialized(
         self,
         clear_cached_credentials: bool,
@@ -91,6 +95,7 @@ pub enum ObjectStoreCredential {
 }
 
 impl ObjectStoreCredential {
+    #[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
     fn variant_name(&self) -> &'static str {
         match self {
             #[cfg(feature = "aws")]
@@ -103,6 +108,7 @@ impl ObjectStoreCredential {
         }
     }
 
+    #[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
     fn panic_type_mismatch(&self, expected: &str) {
         panic!(
             "impl error: credential type mismatch: expected {}, got {} instead",
@@ -208,6 +214,7 @@ type CredentialProviderFunctionImpl = Arc<
 #[derive(Clone)]
 pub struct CredentialProviderFunction(CredentialProviderFunctionImpl);
 
+#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 macro_rules! build_to_object_store_err {
     ($s:expr) => {{
         fn to_object_store_err(
@@ -232,7 +239,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::aws::AwsCredential>>,
         );
 
-        #[async_trait]
+        #[async_trait::async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::aws::AwsCredential;
 
@@ -265,7 +272,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::azure::AzureCredential>>,
         );
 
-        #[async_trait]
+        #[async_trait::async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::azure::AzureCredential;
 
@@ -294,7 +301,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::gcp::GcpCredential>>,
         );
 
-        #[async_trait]
+        #[async_trait::async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::gcp::GcpCredential;
 
@@ -399,9 +406,11 @@ impl schemars::JsonSchema for PlCredentialProvider {
 }
 
 /// Avoids calling the credential provider function if we have not yet passed the expiry time.
+#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 #[derive(Debug)]
 struct FetchedCredentialsCache<C>(tokio::sync::Mutex<(C, u64, bool)>);
 
+#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 impl<C: Clone> FetchedCredentialsCache<C> {
     fn new(init_creds: C) -> Self {
         Self(tokio::sync::Mutex::new((init_creds, 0, true)))
@@ -414,7 +423,7 @@ impl<C: Clone> FetchedCredentialsCache<C> {
         // will not poll that block if the credentials have not yet expired.
         update_func: impl Future<Output = PolarsResult<(C, u64)>>,
     ) -> PolarsResult<C> {
-        let verbose = config::verbose();
+        let verbose = polars_core::config::verbose();
 
         fn expiry_msg(last_fetched_expiry: u64, now: u64) -> String {
             if last_fetched_expiry == u64::MAX {
@@ -431,8 +440,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
         let mut inner = self.0.lock().await;
         let (last_fetched_credentials, last_fetched_expiry, log_use_cached) = &mut *inner;
 
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
@@ -453,7 +462,7 @@ impl<C: Clone> FetchedCredentialsCache<C> {
             *log_use_cached = true;
 
             if expiry < current_time && expiry != 0 {
-                polars_bail!(
+                polars_error::polars_bail!(
                     ComputeError:
                     "credential expiry time {} is older than system time {} \
                      by {} seconds",
@@ -468,8 +477,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
                     "[FetchedCredentialsCache]: Finish update_func: new {}",
                     expiry_msg(
                         *last_fetched_expiry,
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
                     )
@@ -477,8 +486,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
             }
         } else if verbose && *log_use_cached {
             *log_use_cached = false;
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
             eprintln!(

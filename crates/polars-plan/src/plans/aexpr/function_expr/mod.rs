@@ -91,7 +91,6 @@ pub use polars_core::datatypes::ReshapeDimension;
 use polars_core::prelude::*;
 use polars_core::series::IsSorted;
 use polars_core::series::ops::NullBehavior;
-use polars_core::utils::SuperTypeFlags;
 #[cfg(feature = "random")]
 pub use random::IRRandomMethod;
 use schema::FieldsMapper;
@@ -1448,7 +1447,9 @@ impl IRFunctionExpr {
             },
             #[cfg(feature = "search_sorted")]
             F::SearchSorted { .. } => FunctionOptions::groupwise().with_supertyping(
-                (SuperTypeFlags::default() & !SuperTypeFlags::ALLOW_PRIMITIVE_TO_STRING).into(),
+                (polars_core::utils::SuperTypeFlags::default()
+                    & !polars_core::utils::SuperTypeFlags::ALLOW_PRIMITIVE_TO_STRING)
+                    .into(),
             ),
             #[cfg(feature = "trigonometry")]
             F::Trigonometry(_) => FunctionOptions::elementwise(),

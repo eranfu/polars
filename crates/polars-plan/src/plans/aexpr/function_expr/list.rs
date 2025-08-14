@@ -1,5 +1,4 @@
 use arrow::legacy::utils::CustomIterTools;
-use polars_core::utils::SuperTypeOptions;
 use polars_ops::chunked_array::list::*;
 
 use super::*;
@@ -179,9 +178,11 @@ impl IRListFunction {
             L::GatherEvery => FunctionOptions::elementwise(),
             #[cfg(feature = "list_sets")]
             L::SetOperation(_) => FunctionOptions::elementwise()
-                .with_casting_rules(CastingRules::Supertype(SuperTypeOptions {
-                    flags: SuperTypeFlags::default() | SuperTypeFlags::ALLOW_IMPLODE_LIST,
-                }))
+                .with_casting_rules(CastingRules::Supertype(
+                    polars_core::utils::SuperTypeOptions {
+                        flags: SuperTypeFlags::default() | SuperTypeFlags::ALLOW_IMPLODE_LIST,
+                    },
+                ))
                 .with_flags(|f| f & !FunctionFlags::RETURNS_SCALAR),
             #[cfg(feature = "diff")]
             L::Diff { .. } => FunctionOptions::elementwise(),

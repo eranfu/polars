@@ -85,7 +85,7 @@ fn function_input_wildcard_expansion(function: &FunctionExpr) -> FunctionExpansi
             | F::MeanHorizontal { .. }
             | F::RowEncode(..)
     );
-    let mut allow_empty_inputs = matches!(
+    let allow_empty_inputs = matches!(
         function,
         F::Boolean(BooleanFunction::AnyHorizontal | BooleanFunction::AllHorizontal) | F::DropNulls
     );
@@ -102,6 +102,8 @@ fn function_input_wildcard_expansion(function: &FunctionExpr) -> FunctionExpansi
             F::CumReduceHorizontal { .. } | F::CumFoldHorizontal { .. }
         );
     }
+    #[cfg(feature = "ffi_plugin")]
+    let mut allow_empty_inputs = allow_empty_inputs;
     #[cfg(feature = "ffi_plugin")]
     {
         expand_into_inputs |= matches!(function, F::FfiPlugin { flags, .. } if flags.flags.contains(FunctionFlags::INPUT_WILDCARD_EXPANSION));

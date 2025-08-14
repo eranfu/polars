@@ -1,19 +1,17 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use polars_core::config;
-use polars_core::error::{PolarsResult, polars_bail};
+use polars_core::error::PolarsResult;
 use polars_utils::arena::{Arena, Node};
-use polars_utils::format_pl_smallstr;
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "python")]
 use polars_utils::python_function::PythonObject;
 use polars_utils::slice_enum::Slice;
 
 use super::OptimizationRule;
+use crate::dsl::DslPlan;
 #[cfg(feature = "python")]
 use crate::dsl::python_dsl::PythonScanSource;
-use crate::dsl::{DslPlan, FileScanIR, UnifiedScanArgs};
 use crate::plans::IR;
 
 /// Note: Currently only used for iceberg. This is so that we can call iceberg to fetch the files
@@ -32,15 +30,12 @@ impl OptimizationRule for ExpandDatasets {
         // # Note
         // This function mutates the IR node in-place rather than returning the new IR - the
         // StackOptimizer will re-call this function otherwise.
+        #[cfg(feature = "python")]
         if let IR::Scan {
             sources,
             scan_type,
             unified_scan_args,
-
-            file_info: _,
-            hive_parts: _,
-            predicate: _,
-            output_schema: _,
+            ..
         } = lp_arena.get_mut(node)
         {
             let projection = unified_scan_args.projection.clone();
@@ -50,22 +45,21 @@ impl OptimizationRule for ExpandDatasets {
             };
 
             match scan_type.as_mut() {
-                #[cfg(feature = "python")]
-                FileScanIR::PythonDataset {
+                crate::dsl::FileScanIR::PythonDataset {
                     dataset_object,
                     cached_ir,
                 } => {
                     let cached_ir = cached_ir.clone();
                     let mut guard = cached_ir.lock().unwrap();
 
-                    if config::verbose() {
+                    if polars_core::config::verbose() {
                         eprintln!(
                             "expand_datasets(): python[{}]: limit: {:?}, project: {}",
                             dataset_object.name(),
                             limit,
                             projection.as_ref().map_or(
                                 PlSmallStr::from_static("all"),
-                                |x| format_pl_smallstr!("{}", x.len())
+                                |x| polars_utils::format_pl_smallstr!("{}", x.len())
                             )
                         )
                     }
@@ -120,7 +114,7 @@ impl OptimizationRule for ExpandDatasets {
 
                             // We only want a few configuration flags from here (e.g. column casting config).
                             // The rest we either expect to be None (e.g. projection / row_index), or ignore.
-                            let UnifiedScanArgs {
+                            let crate::dsl::UnifiedScanArgs {
                                 schema: _,
                                 cloud_options,
                                 hive_options: _,
@@ -159,26 +153,32 @@ impl OptimizationRule for ExpandDatasets {
 
                             *scan_type = Box::new(match *resolved_scan_type.clone() {
                                 #[cfg(feature = "csv")]
-                                FileScanDsl::Csv { options } => FileScanIR::Csv { options },
+                                FileScanDsl::Csv { options } => {
+                                    crate::dsl::FileScanIR::Csv { options }
+                                },
 
                                 #[cfg(feature = "ipc")]
-                                FileScanDsl::Ipc { options } => FileScanIR::Ipc {
+                                FileScanDsl::Ipc { options } => crate::dsl::FileScanIR::Ipc {
                                     options,
                                     metadata: None,
                                 },
 
                                 #[cfg(feature = "parquet")]
-                                FileScanDsl::Parquet { options } => FileScanIR::Parquet {
-                                    options,
-                                    metadata: None,
+                                FileScanDsl::Parquet { options } => {
+                                    crate::dsl::FileScanIR::Parquet {
+                                        options,
+                                        metadata: None,
+                                    }
                                 },
 
                                 #[cfg(feature = "json")]
-                                FileScanDsl::NDJson { options } => FileScanIR::NDJson { options },
+                                FileScanDsl::NDJson { options } => {
+                                    crate::dsl::FileScanIR::NDJson { options }
+                                },
 
                                 #[cfg(feature = "python")]
                                 FileScanDsl::PythonDataset { dataset_object } => {
-                                    FileScanIR::PythonDataset {
+                                    crate::dsl::FileScanIR::PythonDataset {
                                         dataset_object,
                                         cached_ir: Default::default(),
                                     }
@@ -188,7 +188,7 @@ impl OptimizationRule for ExpandDatasets {
                                     options,
                                     function,
                                     file_info: _,
-                                } => FileScanIR::Anonymous { options, function },
+                                } => crate::dsl::FileScanIR::Anonymous { options, function },
                             });
                         },
 
@@ -201,7 +201,7 @@ impl OptimizationRule for ExpandDatasets {
                         },
 
                         dsl => {
-                            polars_bail!(
+                            polars_core::error::polars_bail!(
                                 ComputeError:
                                 "unknown DSL when resolving python dataset scan: {}",
                                 dsl.display()?
@@ -272,7 +272,7 @@ impl Debug for ExpandedDataset {
                      scan_fn: _,
                      variant,
                  }| {
-                    format_pl_smallstr!("python-scan[{} @ {:?}]", name, variant)
+                    polars_utils::format_pl_smallstr!("python-scan[{} @ {:?}]", name, variant)
                 },
             ),
         }

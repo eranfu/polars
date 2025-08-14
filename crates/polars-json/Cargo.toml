@@ -13,6 +13,7 @@ polars-compute = { workspace = true, features = ["cast"] }
 polars-error = { workspace = true }
 polars-utils = { workspace = true }
 
+log = { workspace = true }
 arrow = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true, optional = true }
