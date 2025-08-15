@@ -389,6 +389,7 @@ impl<'a> TreeFmtNode<'a> {
 pub enum TreeFmtVisitorDisplay {
     #[default]
     DisplayText,
+    #[cfg(feature = "meta")]
     DisplayDot,
 }
 
@@ -885,6 +886,7 @@ fn tree_fmt_text(tree: &TreeFmtVisitor, f: &mut fmt::Formatter<'_>) -> std::fmt:
 
 // GraphViz Output
 // Create a simple DOT graph String from TreeFmtVisitor
+#[cfg(feature = "meta")]
 fn tree_fmt_dot(tree: &TreeFmtVisitor, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
     // Build a dot graph as a string
     let tree_view: TreeView<'_> = tree.levels.as_slice().into();
@@ -921,6 +923,7 @@ fn tree_fmt_dot(tree: &TreeFmtVisitor, f: &mut fmt::Formatter<'_>) -> std::fmt::
 fn tree_fmt(tree: &TreeFmtVisitor, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
     match tree.display {
         TreeFmtVisitorDisplay::DisplayText => tree_fmt_text(tree, f),
+        #[cfg(feature = "meta")]
         TreeFmtVisitorDisplay::DisplayDot => tree_fmt_dot(tree, f),
     }
 }

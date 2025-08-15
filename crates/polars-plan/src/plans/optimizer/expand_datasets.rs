@@ -6,7 +6,6 @@ use polars_utils::arena::{Arena, Node};
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "python")]
 use polars_utils::python_function::PythonObject;
-use polars_utils::slice_enum::Slice;
 
 use super::OptimizationRule;
 use crate::dsl::DslPlan;
@@ -21,6 +20,7 @@ use crate::plans::IR;
 pub(super) struct ExpandDatasets;
 
 impl OptimizationRule for ExpandDatasets {
+    #[cfg_attr(not(feature = "python"), allow(unused_variables))]
     fn optimize_plan(
         &mut self,
         lp_arena: &mut Arena<IR>,
@@ -40,7 +40,7 @@ impl OptimizationRule for ExpandDatasets {
         {
             let projection = unified_scan_args.projection.clone();
             let limit = match unified_scan_args.pre_slice.clone() {
-                Some(v @ Slice::Positive { .. }) => Some(v.end_position()),
+                Some(v @ polars_utils::slice_enum::Slice::Positive { .. }) => Some(v.end_position()),
                 _ => None,
             };
 

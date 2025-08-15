@@ -4,13 +4,13 @@ use parking_lot::Mutex;
 use polars_core::prelude::PlRandomState;
 use polars_core::schema::Schema;
 use polars_core::{POOL, config};
-use polars_error::{PolarsResult, polars_bail, polars_ensure, polars_err};
+use polars_error::{polars_ensure, PolarsResult};
 use polars_expr::groups::new_hash_grouper;
 use polars_expr::planner::{ExpressionConversionState, create_physical_expr};
 use polars_expr::reduce::into_reduction;
 use polars_expr::state::ExecutionState;
 use polars_mem_engine::{create_physical_plan, create_scan_predicate};
-use polars_plan::dsl::{JoinOptionsIR, PartitionVariantIR, ScanSources};
+use polars_plan::dsl::{JoinOptionsIR, PartitionVariantIR};
 use polars_plan::plans::expr_ir::ExprIR;
 use polars_plan::plans::{AExpr, ArenaExprIter, Context, IR};
 use polars_plan::prelude::{FileType, FunctionFlags};
@@ -18,21 +18,18 @@ use polars_utils::arena::{Arena, Node};
 use polars_utils::format_pl_smallstr;
 use polars_utils::itertools::Itertools;
 use polars_utils::pl_str::PlSmallStr;
-use polars_utils::plpath::PlPath;
 use polars_utils::relaxed_cell::RelaxedCell;
 use recursive::recursive;
 use slotmap::{SecondaryMap, SlotMap};
 
 use super::{PhysNode, PhysNodeKey, PhysNodeKind};
-use crate::execute::StreamingExecutionState;
 use crate::expression::StreamExpr;
 use crate::graph::{Graph, GraphNodeKey};
-use crate::morsel::{MorselSeq, get_ideal_morsel_size};
+use crate::morsel::MorselSeq;
 use crate::nodes;
 use crate::nodes::io_sinks::SinkComputeNode;
 use crate::nodes::io_sinks::partition::PerPartitionSortBy;
 use crate::nodes::io_sources::multi_scan::config::MultiScanConfig;
-use crate::nodes::io_sources::multi_scan::reader_interface::builder::FileReaderBuilder;
 use crate::nodes::io_sources::multi_scan::reader_interface::capabilities::ReaderCapabilities;
 use crate::physical_plan::lower_expr::compute_output_schema;
 use crate::utils::late_materialized_df::LateMaterializedDataFrame;
@@ -914,6 +911,7 @@ fn to_graph_rec<'a>(
         PythonScan { options } => {
             use polars_plan::dsl::python_dsl::PythonScanSource as S;
             use polars_plan::plans::PythonPredicate;
+            use polars_utils::plpath::PlPath;
             use polars_utils::relaxed_cell::RelaxedCell;
             use pyo3::exceptions::PyStopIteration;
             use pyo3::prelude::*;
@@ -949,7 +947,9 @@ fn to_graph_rec<'a>(
                 S::Pyarrow => todo!(),
                 S::Cuda => todo!(),
                 S::IOPlugin => {
-                    let batch_size = Some(get_ideal_morsel_size());
+                    use crate::execute::StreamingExecutionState;
+
+                    let batch_size = Some(crate::morsel::get_ideal_morsel_size());
                     let output_schema = output_schema.clone();
 
                     let with_columns = with_columns.map(|x| {
@@ -961,6 +961,8 @@ fn to_graph_rec<'a>(
                     // Setup the IO plugin generator.
                     let (generator, can_parse_predicate) = {
                         Python::with_gil(|py| {
+                            use polars_error::polars_err;
+
                             let pl = PyModule::import(py, intern!(py, "polars")).unwrap();
                             let utils = pl.getattr(intern!(py, "_utils")).unwrap();
                             let callable =
@@ -1018,7 +1020,7 @@ fn to_graph_rec<'a>(
                                 {
                                     Ok(None)
                                 },
-                                Err(err) => polars_bail!(
+                                Err(err) => polars_error::polars_bail!(
                                     ComputeError: "caught exception during execution of a Python source, exception: {err}"
                                 ),
                             }
@@ -1052,7 +1054,7 @@ fn to_graph_rec<'a>(
                 },
             };
 
-            use polars_plan::dsl::{CastColumnsPolicy, MissingColumnsPolicy};
+            use polars_plan::dsl::{CastColumnsPolicy, MissingColumnsPolicy, ScanSources};
 
             use crate::nodes::io_sources::batch::builder::BatchFnReaderBuilder;
             use crate::nodes::io_sources::batch::{BatchFnReader, GetBatchState};
@@ -1073,7 +1075,7 @@ fn to_graph_rec<'a>(
                 name,
                 reader: std::sync::Mutex::new(Some(reader)),
                 execution_state: Default::default(),
-            }) as Arc<dyn FileReaderBuilder>;
+            }) as Arc<dyn nodes::io_sources::multi_scan::reader_interface::builder::FileReaderBuilder>;
 
             // Give multiscan a single scan source. (It doesn't actually read from this).
             let sources = ScanSources::Paths(Arc::from([PlPath::from_str("python-scan-0")]));

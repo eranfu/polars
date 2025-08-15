@@ -748,6 +748,7 @@ impl<'a> FieldsMapper<'a> {
         self.with_dtype(dtype)
     }
 
+    #[cfg(feature = "sign")]
     fn ensure_satisfies(
         self,
         mut f: impl FnMut(usize, &DataType) -> bool,
