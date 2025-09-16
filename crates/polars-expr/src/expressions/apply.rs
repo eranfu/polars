@@ -123,7 +123,7 @@ impl ApplyExpr {
             // Create input for the function to determine the output dtype, see #3946.
             let agg = agg.list().unwrap();
             let input_dtype = agg.inner_dtype();
-            let input = Column::full_null(PlSmallStr::EMPTY, 0, input_dtype);
+            let input = Column::full_null(name.clone(), 0, input_dtype);
 
             let output = self.eval_and_flatten(&mut [input])?;
             let ca = ListChunked::full(name, output.as_materialized_series(), 0);
@@ -211,6 +211,7 @@ impl ApplyExpr {
         ac.with_values_and_args(c, aggregated, Some(&self.expr), true, self.is_scalar())?;
         Ok(ac)
     }
+
     fn apply_multiple_group_aware<'a>(
         &self,
         mut acs: Vec<AggregationContext<'a>>,
@@ -439,9 +440,15 @@ fn apply_multiple_elementwise<'a>(
                 check_map_output_len(input_len, c.len(), expr)?;
             }
 
+            let all_literal = acs
+                .iter()
+                .all(|ac| matches!(ac.state, AggState::LiteralScalar(_)));
+
             // Take the first aggregation context that as that is the input series.
             let mut ac = acs.swap_remove(0);
-            ac.with_values_and_args(c, aggregated, None, true, returns_scalar)?;
+
+            // TODO - add condition that for F(lit) => lit, F must be pure (deterministic & no side-effects)
+            ac.with_values_and_args(c, aggregated, None, all_literal, returns_scalar)?;
             Ok(ac)
         },
     }

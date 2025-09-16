@@ -200,7 +200,7 @@ impl<'a> IRDisplay<'a> {
                 let right_on = self.display_expr_slice(right_on);
 
                 // Fused cross + filter (show as nested loop join)
-                if let Some(JoinTypeOptionsIR::Cross { predicate }) = &options.options {
+                if let Some(JoinTypeOptionsIR::CrossAndFilter { predicate }) = &options.options {
                     let predicate = self.display_expr(predicate);
                     let name = "NESTED LOOP";
                     write!(f, "{:indent$}{name} JOIN ON {predicate}:", "")?;
@@ -455,8 +455,14 @@ impl Display for ExprIRDisplay<'_> {
                     NUnique(expr) => write!(f, "{}.n_unique()", self.with_root(expr)),
                     Sum(expr) => write!(f, "{}.sum()", self.with_root(expr)),
                     AggGroups(expr) => write!(f, "{}.groups()", self.with_root(expr)),
-                    Count(expr, false) => write!(f, "{}.count()", self.with_root(expr)),
-                    Count(expr, true) => write!(f, "{}.len()", self.with_root(expr)),
+                    Count {
+                        input,
+                        include_nulls: false,
+                    } => write!(f, "{}.count()", self.with_root(input)),
+                    Count {
+                        input,
+                        include_nulls: true,
+                    } => write!(f, "{}.len()", self.with_root(input)),
                     Var(expr, _) => write!(f, "{}.var()", self.with_root(expr)),
                     Std(expr, _) => write!(f, "{}.std()", self.with_root(expr)),
                     Quantile {
@@ -783,14 +789,57 @@ pub fn write_ir_non_recursive(
         IR::Sort {
             input: _,
             by_column,
-            slice: _,
-            sort_options: _,
+            slice,
+            sort_options,
         } => {
-            let by_column = ExprIRSliceDisplay {
-                exprs: by_column,
-                expr_arena,
-            };
-            write!(f, "{:indent$}SORT BY {by_column}", "")
+            write!(f, "{:indent$}", "")?;
+
+            f.write_str("SORT BY ")?;
+
+            if slice.is_some()
+                || sort_options.maintain_order
+                || sort_options.descending.iter().any(|v| *v)
+                || sort_options.nulls_last.iter().any(|v| *v)
+            {
+                f.write_char('[')?;
+
+                let mut comma = false;
+                if let Some((o, l)) = slice {
+                    write!(f, "slice: ({o}, {l})")?;
+                    comma = true;
+                }
+                if sort_options.maintain_order {
+                    if comma {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str("maintain_order: true")?;
+                    comma = true;
+                }
+                if sort_options.descending.iter().any(|v| *v) {
+                    if comma {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "descending: {:?}", sort_options.descending.as_slice())?;
+                    comma = true;
+                }
+                if sort_options.nulls_last.iter().any(|v| *v) {
+                    if comma {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "nulls_last: {:?}", sort_options.nulls_last.as_slice())?;
+                }
+
+                f.write_str("] ")?;
+            }
+
+            write!(
+                f,
+                "{}",
+                ExprIRSliceDisplay {
+                    exprs: by_column,
+                    expr_arena,
+                }
+            )
         },
         IR::Cache { input: _, id } => write!(f, "{:indent$}CACHE[id: {id}]", ""),
         IR::GroupBy {
@@ -828,7 +877,7 @@ pub fn write_ir_non_recursive(
             };
 
             // Fused cross + filter (show as nested loop join)
-            if let Some(JoinTypeOptionsIR::Cross { predicate }) = &options.options {
+            if let Some(JoinTypeOptionsIR::CrossAndFilter { predicate }) = &options.options {
                 let predicate = predicate.display(expr_arena);
                 write!(f, "{:indent$}NESTED_LOOP JOIN ON {predicate}", "")?;
             } else {

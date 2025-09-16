@@ -125,7 +125,7 @@ fn upsample_impl(
     if matches!(time_type, DataType::Date) {
         let mut df = source.clone();
         df.apply(index_column, |s| {
-            s.cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            s.cast(&DataType::Datetime(TimeUnit::Microseconds, None))
                 .unwrap()
         })?;
         let mut out = upsample_impl(&df, by, index_column, every, stable)?;

@@ -31,8 +31,8 @@ def _assert_correct_input_type(
 
 
 @deprecate_renamed_parameter("check_dtype", "check_dtypes", version="0.20.31")
-@deprecate_renamed_parameter("rtol", "rel_tol", version="1.33.0")
-@deprecate_renamed_parameter("atol", "abs_tol", version="1.33.0")
+@deprecate_renamed_parameter("rtol", "rel_tol", version="1.32.3")
+@deprecate_renamed_parameter("atol", "abs_tol", version="1.32.3")
 def assert_frame_equal(
     left: DataFrame | LazyFrame,
     right: DataFrame | LazyFrame,
@@ -54,7 +54,7 @@ def assert_frame_equal(
     .. versionchanged:: 0.20.31
         The `check_dtype` parameter was renamed `check_dtypes`.
 
-    .. versionchanged:: 1.33.0
+    .. versionchanged:: 1.32.3
         The `rtol` and `atol` parameters were renamed to `rel_tol` and `abs_tol`,
         respectively.
 
@@ -99,7 +99,7 @@ def assert_frame_equal(
     >>> from polars.testing import assert_frame_equal
     >>> df1 = pl.DataFrame({"a": [1, 2, 3]})
     >>> df2 = pl.DataFrame({"a": [1, 5, 3]})
-    >>> assert_frame_equal(df1, df2)  # doctest: +ELLIPSIS
+    >>> assert_frame_equal(df1, df2)
     Traceback (most recent call last):
     ...
     AssertionError: DataFrames are different (value mismatch for column "a")
@@ -143,8 +143,8 @@ def assert_frame_equal(
 
 
 @deprecate_renamed_parameter("check_dtype", "check_dtypes", version="0.20.31")
-@deprecate_renamed_parameter("rtol", "rel_tol", version="1.33.0")
-@deprecate_renamed_parameter("atol", "abs_tol", version="1.33.0")
+@deprecate_renamed_parameter("rtol", "rel_tol", version="1.32.3")
+@deprecate_renamed_parameter("atol", "abs_tol", version="1.32.3")
 def assert_frame_not_equal(
     left: DataFrame | LazyFrame,
     right: DataFrame | LazyFrame,
@@ -165,7 +165,7 @@ def assert_frame_not_equal(
     .. versionchanged:: 0.20.31
         The `check_dtype` parameter was renamed `check_dtypes`.
 
-    .. versionchanged:: 1.33.0
+    .. versionchanged:: 1.32.3
         The `rtol` and `atol` parameters were renamed to `rel_tol` and `abs_tol`,
         respectively.
 

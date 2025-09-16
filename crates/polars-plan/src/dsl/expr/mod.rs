@@ -39,8 +39,10 @@ pub enum AggExpr {
     Last(Arc<Expr>),
     Mean(Arc<Expr>),
     Implode(Arc<Expr>),
-    // include_nulls
-    Count(Arc<Expr>, bool),
+    Count {
+        input: Arc<Expr>,
+        include_nulls: bool,
+    },
     Quantile {
         expr: Arc<Expr>,
         quantile: Arc<Expr>,
@@ -64,7 +66,7 @@ impl AsRef<Expr> for AggExpr {
             Last(e) => e,
             Mean(e) => e,
             Implode(e) => e,
-            Count(e, _) => e,
+            Count { input, .. } => input,
             Quantile { expr, .. } => expr,
             Sum(e) => e,
             AggGroups(e) => e,
@@ -184,7 +186,11 @@ pub enum Expr {
 pub enum LazySerde<T: Clone> {
     Deserialized(T),
     Bytes(Bytes),
-    // Used by cloud
+    /// Named functions allow for serializing arbitrary Rust functions as long as both sides know
+    /// ahead of time which function it is. There is a registry of functions that both sides know
+    /// and every time we need serialize we serialize the function by name in the registry.
+    ///
+    /// Used by cloud.
     Named {
         // Name and payload are used by the NamedRegistry
         // To load the function `T` at runtime.
@@ -554,6 +560,26 @@ impl EvalVariant {
             _ => polars_bail!(op = self.to_name(), dtype),
         }
     }
+
+    pub fn is_elementwise(&self) -> bool {
+        match self {
+            EvalVariant::List => true,
+            EvalVariant::Cumulative { min_samples: _ } => false,
+        }
+    }
+
+    pub fn is_row_separable(&self) -> bool {
+        match self {
+            EvalVariant::List => true,
+            EvalVariant::Cumulative { min_samples: _ } => false,
+        }
+    }
+
+    pub fn is_length_preserving(&self) -> bool {
+        match self {
+            EvalVariant::List | EvalVariant::Cumulative { .. } => true,
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -668,10 +694,7 @@ pub enum RenameAliasFn {
     Suffix(PlSmallStr),
     ToLowercase,
     ToUppercase,
-    #[cfg(feature = "python")]
-    Python(SpecialEq<Arc<polars_utils::python_function::PythonObject>>),
-    #[cfg_attr(any(feature = "serde", feature = "dsl-schema"), serde(skip))]
-    Rust(SpecialEq<Arc<RenameAliasRustFn>>),
+    Map(PlanCallback<PlSmallStr, PlSmallStr>),
 }
 
 impl RenameAliasFn {
@@ -681,19 +704,7 @@ impl RenameAliasFn {
             Self::Suffix(suffix) => format_pl_smallstr!("{name}{suffix}"),
             Self::ToLowercase => PlSmallStr::from_string(name.to_lowercase()),
             Self::ToUppercase => PlSmallStr::from_string(name.to_uppercase()),
-            #[cfg(feature = "python")]
-            Self::Python(lambda) => {
-                let name = name.as_str();
-                pyo3::marker::Python::with_gil(|py| {
-                    let out: PlSmallStr = lambda
-                        .call1(py, (name,))?
-                        .extract::<std::borrow::Cow<str>>(py)?
-                        .as_ref()
-                        .into();
-                    pyo3::PyResult::<_>::Ok(out)
-                }).map_err(|e| polars_err!(ComputeError: "Python function in 'name.map' produced an error: {e}."))?
-            },
-            Self::Rust(f) => f(name)?,
+            Self::Map(f) => f.call(name.clone())?,
         };
         Ok(out)
     }
