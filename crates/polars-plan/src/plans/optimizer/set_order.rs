@@ -19,6 +19,7 @@ use polars_utils::idx_vec::UnitVec;
 use polars_utils::unique_id::UniqueId;
 
 use super::IR;
+#[allow(unused_imports)]
 use crate::dsl::{SinkTypeIR, UnionOptions};
 use crate::plans::ir::inputs::Inputs;
 use crate::plans::{AExpr, is_order_sensitive_amortized, is_scalar_ae};

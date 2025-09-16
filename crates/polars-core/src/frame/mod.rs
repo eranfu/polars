@@ -2090,8 +2090,8 @@ impl DataFrame {
 
     /// # Safety
     /// The indices must be in-bounds.
-    pub unsafe fn take_unchecked_impl(&self, idx: &IdxCa, allow_threads: bool) -> Self {
-        let cols = if allow_threads {
+    pub unsafe fn take_unchecked_impl(&self, idx: &IdxCa, detach: bool) -> Self {
+        let cols = if detach {
             POOL.install(|| self._apply_columns_par(&|c| c.take_unchecked(idx)))
         } else {
             self._apply_columns(&|s| s.take_unchecked(idx))
@@ -2107,8 +2107,8 @@ impl DataFrame {
 
     /// # Safety
     /// The indices must be in-bounds.
-    pub unsafe fn take_slice_unchecked_impl(&self, idx: &[IdxSize], allow_threads: bool) -> Self {
-        let cols = if allow_threads {
+    pub unsafe fn take_slice_unchecked_impl(&self, idx: &[IdxSize], detach: bool) -> Self {
+        let cols = if detach {
             POOL.install(|| self._apply_columns_par(&|s| s.take_slice_unchecked(idx)))
         } else {
             self._apply_columns(&|s| s.take_slice_unchecked(idx))
@@ -3227,8 +3227,8 @@ impl DataFrame {
     /// Be careful with allowing threads when calling this in a large hot loop
     /// every thread split may be on rayon stack and lead to SO
     #[doc(hidden)]
-    pub unsafe fn _take_unchecked_slice(&self, idx: &[IdxSize], allow_threads: bool) -> Self {
-        self._take_unchecked_slice_sorted(idx, allow_threads, IsSorted::Not)
+    pub unsafe fn _take_unchecked_slice(&self, idx: &[IdxSize], detach: bool) -> Self {
+        self._take_unchecked_slice_sorted(idx, detach, IsSorted::Not)
     }
 
     /// Take by index values given by the slice `idx`. Use this over `_take_unchecked_slice`
@@ -3241,7 +3241,7 @@ impl DataFrame {
     pub unsafe fn _take_unchecked_slice_sorted(
         &self,
         idx: &[IdxSize],
-        allow_threads: bool,
+        detach: bool,
         sorted: IsSorted,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -3260,7 +3260,7 @@ impl DataFrame {
         }
         let mut ca = IdxCa::mmap_slice(PlSmallStr::EMPTY, idx);
         ca.set_sorted_flag(sorted);
-        self.take_unchecked_impl(&ca, allow_threads)
+        self.take_unchecked_impl(&ca, detach)
     }
 
     #[cfg(all(feature = "partition_by", feature = "algorithm_group_by"))]

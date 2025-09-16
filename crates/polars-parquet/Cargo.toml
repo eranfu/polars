@@ -29,11 +29,11 @@ simdutf8 = { workspace = true }
 
 streaming-decompression = "0.1"
 
-async-stream = { version = "0.3.3", optional = true }
+async-stream = { version = "0.3.6", optional = true }
 
 brotli = { version = "8", optional = true }
 flate2 = { workspace = true, optional = true }
-lz4 = { version = "1.24", optional = true }
+lz4 = { version = "1.28", optional = true }
 lz4_flex = { version = "0.11", optional = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

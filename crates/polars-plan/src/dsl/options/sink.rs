@@ -2,7 +2,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
-
+#[cfg(feature = "python")]
+use pyo3::PyAny;
 use polars_core::error::PolarsResult;
 use polars_core::frame::DataFrame;
 use polars_core::scalar::Scalar;
@@ -252,10 +253,10 @@ impl PartitionTargetContextKey {
         Ok(value.to_string())
     }
     #[getter]
-    pub fn raw_value(&self) -> pyo3::PyObject {
+    pub fn raw_value(&self) -> pyo3::Py<PyAny> {
         let converter = polars_core::chunked_array::object::registry::get_pyobject_converter();
         *(converter.as_ref())(self.raw_value.as_any_value())
-            .downcast::<pyo3::PyObject>()
+            .downcast::<pyo3::Py<PyAny>>()
             .unwrap()
     }
 }
@@ -305,7 +306,7 @@ impl SinkFinishCallback {
         match self {
             Self::Rust(f) => f(df),
             #[cfg(feature = "python")]
-            Self::Python(f) => pyo3::Python::with_gil(|py| {
+            Self::Python(f) => pyo3::Python::attach(|py| {
                 let converter =
                     polars_utils::python_convert_registry::get_python_convert_registry();
                 let df = (converter.to_py.df)(Box::new(df) as Box<dyn std::any::Any>)?;
@@ -327,7 +328,7 @@ impl PartitionTargetCallback {
         match self {
             Self::Rust(f) => f(ctx),
             #[cfg(feature = "python")]
-            Self::Python(f) => pyo3::Python::with_gil(|py| {
+            Self::Python(f) => pyo3::Python::attach(|py| {
                 let partition_target = f.call1(py, (ctx,))?;
                 let converter =
                     polars_utils::python_convert_registry::get_python_convert_registry();

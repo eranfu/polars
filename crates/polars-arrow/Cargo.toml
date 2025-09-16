@@ -39,7 +39,7 @@ streaming-iterator = { workspace = true }
 arrow-format = { workspace = true, optional = true, features = ["ipc"] }
 
 # for IPC compression
-lz4 = { version = "1.24", optional = true }
+lz4 = { version = "1.28", optional = true }
 zstd = { workspace = true, optional = true }
 
 # to write to parquet as a stream

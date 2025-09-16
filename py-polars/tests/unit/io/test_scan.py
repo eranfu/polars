@@ -733,7 +733,7 @@ def test_scan_in_memory(method: str) -> None:
     assert_frame_equal(df.vstack(df).slice(-1, 1), result)
 
 
-def test_scan_pyobject_zero_copy_buffer_mutate() -> None:
+def test_scan_Py<PyAny>_zero_copy_buffer_mutate() -> None:
     f = io.BytesIO()
 
     df = pl.DataFrame({"x": [1, 2, 3, 4, 5]})

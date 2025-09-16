@@ -1,17 +1,21 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+#[allow(unused_imports)]
 use polars_core::config;
+#[allow(unused_imports)]
 use polars_core::error::{PolarsResult, polars_bail};
 use polars_utils::arena::{Arena, Node};
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "python")]
 use polars_utils::python_function::PythonObject;
 use polars_utils::slice_enum::Slice;
+#[allow(unused_imports)]
 use polars_utils::{format_pl_smallstr, unitvec};
 
 #[cfg(feature = "python")]
 use crate::dsl::python_dsl::PythonScanSource;
+#[allow(unused_imports)]
 use crate::dsl::{DslPlan, FileScanIR, UnifiedScanArgs};
 use crate::plans::IR;
 
@@ -21,6 +25,7 @@ pub(super) fn expand_datasts(root: Node, lp_arena: &mut Arena<IR>) -> PolarsResu
     while let Some(node) = stack.pop() {
         lp_arena.get(node).copy_inputs(&mut stack);
 
+        #[allow(unused_variables)]
         let IR::Scan {
             sources,
             scan_type,
@@ -34,8 +39,9 @@ pub(super) fn expand_datasts(root: Node, lp_arena: &mut Arena<IR>) -> PolarsResu
         else {
             continue;
         };
-
+        #[allow(unused_variables)]
         let projection = unified_scan_args.projection.clone();
+        #[allow(unused_variables)]
         let limit = match unified_scan_args.pre_slice.clone() {
             Some(v @ Slice::Positive { .. }) => Some(v.end_position()),
             _ => None,

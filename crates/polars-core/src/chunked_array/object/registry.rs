@@ -28,7 +28,7 @@ pub struct ObjectRegistry {
     pub builder_constructor: BuilderConstructor,
     // A function that converts AnyValue to Box<dyn Any> of the object type
     object_converter: Option<ObjectConverter>,
-    // A function that converts AnyValue to Box<dyn Any> of the PyObject type
+    // A function that converts AnyValue to Box<dyn Any> of the Py<PyAny> type
     pyobject_converter: Option<PyObjectConverter>,
     pub physical_dtype: ArrowDataType,
 }

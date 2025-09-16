@@ -39,7 +39,7 @@ impl Buffer<'_> {
         use AnyValueBuffer::*;
         match &mut self.buf {
             _ if value.is_null() => {
-                self.buf.add(AnyValue::Null);
+                self.buf.add(AnyValue::Null).unwrap_or_default();
                 Ok(())
             },
             Boolean(buf) => {

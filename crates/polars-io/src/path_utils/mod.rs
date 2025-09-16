@@ -400,12 +400,14 @@ pub fn expand_paths_hive(
             for (path_idx, path) in paths.iter().enumerate() {
                 use std::borrow::Cow;
 
+                #[allow(unused_mut)]
                 let mut path = Cow::Borrowed(path);
 
                 if matches!(
                     path.cloud_scheme(),
                     Some(CloudScheme::Http | CloudScheme::Https)
                 ) {
+                    #[allow(unused_mut)]
                     let mut rewrite_aws = false;
 
                     #[cfg(feature = "aws")]
