@@ -416,7 +416,9 @@ impl Expr {
         ctx.allow_unknown = true;
         let expr = to_expr_ir(self.clone(), &mut ctx)?;
         let (node, output_name) = expr.into_inner();
-        let dtype = expr_arena.get(node).to_dtype(schema, expr_arena)?;
+        let dtype = expr_arena
+            .get(node)
+            .to_dtype(&ToFieldContext::new(expr_arena, schema))?;
         Ok(Field::new(output_name.into_inner().unwrap(), dtype))
     }
 
@@ -540,6 +542,13 @@ pub enum EvalVariant {
     /// `list.eval`
     List,
 
+    /// `array.eval`
+    Array {
+        /// If set to true, evaluation can output variable amount of items and output datatype will
+        /// be `List`.
+        as_list: bool,
+    },
+
     /// `cumulative_eval`
     Cumulative { min_samples: usize },
 }
@@ -548,6 +557,7 @@ impl EvalVariant {
     pub fn to_name(&self) -> &'static str {
         match self {
             Self::List => "list.eval",
+            Self::Array { .. } => "array.eval",
             Self::Cumulative { min_samples: _ } => "cumulative_eval",
         }
     }
@@ -556,7 +566,30 @@ impl EvalVariant {
     pub fn element_dtype<'a>(&self, dtype: &'a DataType) -> PolarsResult<&'a DataType> {
         match (self, dtype) {
             (Self::List, DataType::List(inner)) => Ok(inner.as_ref()),
+            #[cfg(feature = "dtype-array")]
+            (Self::Array { .. }, DataType::Array(inner, _)) => Ok(inner.as_ref()),
             (Self::Cumulative { min_samples: _ }, dt) => Ok(dt),
+            _ => polars_bail!(op = self.to_name(), dtype),
+        }
+    }
+
+    /// Get the output datatype from the output element datatype
+    pub fn output_dtype(
+        &self,
+        dtype: &'_ DataType,
+        output_element_dtype: DataType,
+    ) -> PolarsResult<DataType> {
+        match (self, dtype) {
+            (Self::List, DataType::List(_)) => Ok(DataType::List(Box::new(output_element_dtype))),
+            #[cfg(feature = "dtype-array")]
+            (Self::Array { as_list: false }, DataType::Array(_, width)) => {
+                Ok(DataType::Array(Box::new(output_element_dtype), *width))
+            },
+            #[cfg(feature = "dtype-array")]
+            (Self::Array { as_list: true }, DataType::Array(_, _)) => {
+                Ok(DataType::List(Box::new(output_element_dtype)))
+            },
+            (Self::Cumulative { min_samples: _ }, _) => Ok(output_element_dtype),
             _ => polars_bail!(op = self.to_name(), dtype),
         }
     }
@@ -564,6 +597,7 @@ impl EvalVariant {
     pub fn is_elementwise(&self) -> bool {
         match self {
             EvalVariant::List => true,
+            EvalVariant::Array { .. } => true,
             EvalVariant::Cumulative { min_samples: _ } => false,
         }
     }
@@ -571,13 +605,14 @@ impl EvalVariant {
     pub fn is_row_separable(&self) -> bool {
         match self {
             EvalVariant::List => true,
+            EvalVariant::Array { .. } => true,
             EvalVariant::Cumulative { min_samples: _ } => false,
         }
     }
 
     pub fn is_length_preserving(&self) -> bool {
         match self {
-            EvalVariant::List | EvalVariant::Cumulative { .. } => true,
+            EvalVariant::List | EvalVariant::Array { .. } | EvalVariant::Cumulative { .. } => true,
         }
     }
 }
@@ -695,6 +730,11 @@ pub enum RenameAliasFn {
     ToLowercase,
     ToUppercase,
     Map(PlanCallback<PlSmallStr, PlSmallStr>),
+    Replace {
+        pattern: PlSmallStr,
+        value: PlSmallStr,
+        literal: bool,
+    },
 }
 
 impl RenameAliasFn {
@@ -705,6 +745,20 @@ impl RenameAliasFn {
             Self::ToLowercase => PlSmallStr::from_string(name.to_lowercase()),
             Self::ToUppercase => PlSmallStr::from_string(name.to_uppercase()),
             Self::Map(f) => f.call(name.clone())?,
+            Self::Replace {
+                pattern,
+                value,
+                literal,
+            } => {
+                if *literal {
+                    name.replace(pattern.as_str(), value.as_str()).into()
+                } else {
+                    feature_gated!("regex", {
+                        let rx = polars_utils::regex_cache::compile_regex(pattern)?;
+                        rx.replace_all(name, value.as_str()).into()
+                    })
+                }
+            },
         };
         Ok(out)
     }

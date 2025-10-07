@@ -9,7 +9,7 @@ use pyo3::conversion::FromPyObjectBound;
 use pyo3::exceptions::PyValueError;
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyAnyMethods, PyDict, PyList, PyListMethods};
-use pyo3::{Py, PyAny, PyResult, Python, intern};
+use pyo3::{PyResult, Python, intern, PyObject};
 
 use crate::interop::arrow::to_rust::field_to_rust;
 use crate::prelude::{Wrap, get_lf};
@@ -80,6 +80,7 @@ pub fn to_dataset_scan(
     existing_resolved_version_key: Option<&str>,
     limit: Option<usize>,
     projection: Option<&[PlSmallStr]>,
+    filter_columns: Option<&[PlSmallStr]>,
 ) -> PolarsResult<Option<(DslPlan, PlSmallStr)>> {
     Python::attach(|py| {
         let kwargs = PyDict::new(py);
@@ -103,7 +104,17 @@ pub fn to_dataset_scan(
             kwargs.set_item(intern!(py, "projection"), projection_list)?;
         }
 
-        let Some((scan, version)): Option<(Py<PyAny>, Wrap<PlSmallStr>)> = dataset_object
+        if let Some(filter_columns) = filter_columns {
+            let filter_columns_list = PyList::empty(py);
+
+            for name in filter_columns {
+                filter_columns_list.append(name.as_str())?;
+            }
+
+            kwargs.set_item(intern!(py, "filter_columns"), filter_columns_list)?;
+        }
+
+        let Some((scan, version)): Option<(PyObject, Wrap<PlSmallStr>)> = dataset_object
             .getattr(py, intern!(py, "to_dataset_scan"))?
             .call(py, (), Some(&kwargs))?
             .extract(py)?

@@ -285,6 +285,23 @@ fn to_graph_rec<'a>(
             )
         },
 
+        CallbackSink {
+            input,
+            function,
+            maintain_order,
+            chunk_size,
+        } => {
+            let input_key = to_graph_rec(input.node, ctx)?;
+            ctx.graph.add_node(
+                nodes::callback_sink::CallbackSinkNode::new(
+                    function.clone(),
+                    *maintain_order,
+                    *chunk_size,
+                ),
+                [(input_key, input.port)],
+            )
+        },
+
         FileSink {
             target,
             sink_options,
@@ -562,6 +579,15 @@ fn to_graph_rec<'a>(
             )
         },
 
+        GatherEvery { input, n, offset } => {
+            let (n, offset) = (*n, *offset);
+            let input_key = to_graph_rec(input.node, ctx)?;
+            ctx.graph.add_node(
+                nodes::gather_every::GatherEveryNode::new(n, offset)?,
+                [(input_key, input.port)],
+            )
+        },
+
         Rle(input) => {
             let input_key = to_graph_rec(input.node, ctx)?;
             let input_schema = &ctx.phys_sm[input.node].output_schema;
@@ -642,6 +668,7 @@ fn to_graph_rec<'a>(
             include_file_paths,
             forbid_extra_columns,
             deletion_files,
+            table_statistics,
             file_schema,
         } => {
             let hive_parts = hive_parts.clone();
@@ -679,6 +706,7 @@ fn to_graph_rec<'a>(
             let forbid_extra_columns = forbid_extra_columns.clone();
             let cast_columns_policy = cast_columns_policy.clone();
             let deletion_files = deletion_files.clone();
+            let table_statistics = table_statistics.clone();
 
             let verbose = config::verbose();
 
@@ -698,6 +726,7 @@ fn to_graph_rec<'a>(
                     forbid_extra_columns,
                     cast_columns_policy,
                     deletion_files,
+                    table_statistics,
                     // Initialized later
                     num_pipelines: RelaxedCell::new_usize(0),
                     n_readers_pre_init: RelaxedCell::new_usize(0),
@@ -955,6 +984,7 @@ fn to_graph_rec<'a>(
 
         #[cfg(feature = "python")]
         PythonScan { options } => {
+            use arrow::buffer::Buffer;
             use polars_plan::dsl::python_dsl::PythonScanSource as S;
             use polars_plan::plans::PythonPredicate;
             use polars_utils::plpath::PlPath;
@@ -1124,7 +1154,8 @@ fn to_graph_rec<'a>(
             }) as Arc<dyn nodes::io_sources::multi_scan::reader_interface::builder::FileReaderBuilder>;
 
             // Give multiscan a single scan source. (It doesn't actually read from this).
-            let sources = ScanSources::Paths(Arc::from([PlPath::from_str("python-scan-0")]));
+            let sources =
+                ScanSources::Paths(Buffer::from_iter([PlPath::from_str("python-scan-0")]));
             let cloud_options = None;
             let final_output_schema = output_schema.clone();
             let file_projection_builder = ProjectionBuilder::new(output_schema, None, None);
@@ -1137,6 +1168,7 @@ fn to_graph_rec<'a>(
             let forbid_extra_columns = None;
             let cast_columns_policy = CastColumnsPolicy::ERROR_ON_MISMATCH;
             let deletion_files = None;
+            let table_statistics = None;
             let verbose = config::verbose();
 
             ctx.graph.add_node(
@@ -1155,6 +1187,7 @@ fn to_graph_rec<'a>(
                     forbid_extra_columns,
                     cast_columns_policy,
                     deletion_files,
+                    table_statistics,
                     // Initialized later
                     num_pipelines: RelaxedCell::new_usize(0),
                     n_readers_pre_init: RelaxedCell::new_usize(0),

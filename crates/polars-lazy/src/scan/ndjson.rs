@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
-use std::sync::Arc;
 
+use arrow::buffer::Buffer;
 use polars_core::prelude::*;
 use polars_io::cloud::CloudOptions;
 use polars_io::{HiveOptions, RowIndex};
@@ -32,7 +32,7 @@ pub struct LazyJsonLineReader {
 }
 
 impl LazyJsonLineReader {
-    pub fn new_paths(paths: Arc<[PlPath]>) -> Self {
+    pub fn new_paths(paths: Buffer<PlPath>) -> Self {
         Self::new_with_sources(ScanSources::Paths(paths))
     }
 
@@ -55,7 +55,7 @@ impl LazyJsonLineReader {
     }
 
     pub fn new(path: PlPath) -> Self {
-        Self::new_with_sources(ScanSources::Paths([path].into()))
+        Self::new_with_sources(ScanSources::Paths(Buffer::from_iter([path])))
     }
 
     /// Set the path to the JSON line subdirectory.
@@ -147,6 +147,7 @@ impl LazyFileListReader for LazyJsonLineReader {
             rechunk: self.rechunk,
             cache: false,
             glob: true,
+            hidden_file_prefix: None,
             projection: None,
             column_mapping: None,
             default_values: None,
@@ -157,6 +158,7 @@ impl LazyFileListReader for LazyJsonLineReader {
             extra_columns_policy: ExtraColumnsPolicy::Raise,
             include_file_paths: self.include_file_paths,
             deletion_files: None,
+            table_statistics: None,
         };
 
         let options = NDJsonReadOptions {

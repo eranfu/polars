@@ -529,6 +529,12 @@ impl Display for ExprIRDisplay<'_> {
                 let evaluation = self.with_root(evaluation);
                 match variant {
                     EvalVariant::List => write!(f, "{expr}.list.eval({evaluation})"),
+                    EvalVariant::Array { as_list: false } => {
+                        write!(f, "{expr}.array.eval({evaluation})")
+                    },
+                    EvalVariant::Array { as_list: true } => {
+                        write!(f, "{expr}.array.eval({evaluation}, as_list=true)")
+                    },
                     EvalVariant::Cumulative { min_samples } => write!(
                         f,
                         "{expr}.cumulative_eval({evaluation}, min_samples={min_samples})"
@@ -930,6 +936,7 @@ pub fn write_ir_non_recursive(
         IR::Sink { input: _, payload } => {
             let name = match payload {
                 SinkTypeIR::Memory => "SINK (memory)",
+                SinkTypeIR::Callback { .. } => "SINK (callback)",
                 SinkTypeIR::File { .. } => "SINK (file)",
                 SinkTypeIR::Partition { .. } => "SINK (partition)",
             };
