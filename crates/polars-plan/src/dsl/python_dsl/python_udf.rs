@@ -17,6 +17,7 @@ use crate::prelude::*;
 pub static mut CALL_COLUMNS_UDF_PYTHON: Option<
     fn(s: &[Column], output_dtype: Option<DataType>, lambda: &Py<PyAny>) -> PolarsResult<Column>,
 > = None;
+
 #[allow(clippy::type_complexity)]
 pub static mut CALL_DF_UDF_PYTHON: Option<
     fn(s: DataFrame, lambda: &Py<PyAny>) -> PolarsResult<DataFrame>,
@@ -85,6 +86,23 @@ impl DataFrameUdf for polars_utils::python_function::PythonFunction {
     fn call_udf(&self, df: DataFrame) -> PolarsResult<DataFrame> {
         let func = unsafe { CALL_DF_UDF_PYTHON.unwrap() };
         func(df, &self.0)
+    }
+
+    fn display_str(&self) -> PlSmallStr {
+        pyo3::Python::attach(|py| {
+            use polars_utils::format_pl_smallstr;
+            use pyo3::intern;
+            use pyo3::pybacked::PyBackedStr;
+
+            let class_name: PyBackedStr = self
+                .0
+                .getattr(py, intern!(py, "__class__"))
+                .unwrap()
+                .extract(py)
+                .unwrap();
+
+            format_pl_smallstr!("PythonUdf({class_name})")
+        })
     }
 }
 

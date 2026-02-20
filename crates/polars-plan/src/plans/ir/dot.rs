@@ -225,6 +225,7 @@ impl<'a> IRDotDisplay<'a> {
                 file_info,
                 hive_parts: _,
                 predicate,
+                predicate_file_skip_applied: _,
                 scan_type,
                 unified_scan_args,
                 output_schema: _,
@@ -293,7 +294,7 @@ impl<'a> IRDotDisplay<'a> {
                         SinkTypeIR::Memory => "SINK (MEMORY)",
                         SinkTypeIR::Callback { .. } => "SINK (CALLBACK)",
                         SinkTypeIR::File { .. } => "SINK (FILE)",
-                        SinkTypeIR::Partition { .. } => "SINK (PARTITION)",
+                        SinkTypeIR::Partitioned { .. } => "SINK (PARTITION)",
                     })
                 })?;
             },
@@ -341,7 +342,7 @@ struct NumColumnsSchema<'a>(Option<&'a Schema>);
 impl fmt::Display for ScanSourceRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ScanSourceRef::Path(addr) => addr.display().fmt(f),
+            ScanSourceRef::Path(path) => path.fmt(f),
             ScanSourceRef::File(_) => f.write_str("open-file"),
             ScanSourceRef::Buffer(buff) => write!(f, "{} in-mem bytes", buff.len()),
         }

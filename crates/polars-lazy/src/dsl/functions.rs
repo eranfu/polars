@@ -6,7 +6,6 @@
 use polars_core::prelude::*;
 pub use polars_plan::dsl::functions::*;
 use polars_plan::prelude::UnionArgs;
-use rayon::prelude::*;
 
 use crate::prelude::*;
 
@@ -44,7 +43,7 @@ pub fn concat_lf_diagonal<L: IntoIterator<Item = LazyFrame>>(
 /// Concat [LazyFrame]s horizontally.
 pub fn concat_lf_horizontal<L: AsRef<[LazyFrame]>>(
     inputs: L,
-    args: UnionArgs,
+    options: HConcatOptions,
 ) -> PolarsResult<LazyFrame> {
     let lfs = inputs.as_ref();
     let (opt_state, cached_arena) = lfs
@@ -54,9 +53,6 @@ pub fn concat_lf_horizontal<L: AsRef<[LazyFrame]>>(
             || polars_err!(NoData: "Require at least one LazyFrame for horizontal concatenation"),
         )?;
 
-    let options = HConcatOptions {
-        parallel: args.parallel,
-    };
     let lp = DslPlan::HConcat {
         inputs: lfs.iter().map(|lf| lf.logical_plan.clone()).collect(),
         options,
@@ -70,16 +66,6 @@ pub fn concat(
     args: UnionArgs,
 ) -> PolarsResult<LazyFrame> {
     concat_impl(inputs, args)
-}
-
-/// Collect all [`LazyFrame`] computations.
-pub fn collect_all<I>(lfs: I) -> PolarsResult<Vec<DataFrame>>
-where
-    I: IntoParallelIterator<Item = LazyFrame>,
-{
-    let iter = lfs.into_par_iter();
-
-    polars_core::POOL.install(|| iter.map(|lf| lf.collect()).collect())
 }
 
 #[cfg(test)]

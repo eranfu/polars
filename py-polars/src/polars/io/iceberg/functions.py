@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+import importlib
+from typing import TYPE_CHECKING, Literal
 
 from polars._utils.unstable import issue_unstable_warning
 from polars._utils.wrap import wrap_ldf
-from polars.io.iceberg.dataset import IcebergDataset
+from polars.io.cloud._utils import NoPickleOption
+from polars.io.iceberg._dataset import IcebergDataset
 
 if TYPE_CHECKING:
     from pyiceberg.table import Table
 
+    from polars._typing import StorageOptionsDict
     from polars.lazyframe.frame import LazyFrame
 
 
@@ -16,9 +19,11 @@ def scan_iceberg(
     source: str | Table,
     *,
     snapshot_id: int | None = None,
-    storage_options: dict[str, Any] | None = None,
+    storage_options: StorageOptionsDict | None = None,
     reader_override: Literal["native", "pyiceberg"] | None = None,
     use_metadata_statistics: bool = True,
+    fast_deletion_count: bool | None = None,
+    use_pyiceberg_filter: bool = True,
 ) -> LazyFrame:
     """
     Lazily read from an Apache Iceberg table.
@@ -53,13 +58,32 @@ def scan_iceberg(
           improve performance.
         * pyiceberg: Uses PyIceberg, which may support more features.
     use_metadata_statistics
-        Load and use min/max statistics from Iceberg metadata files when a filter
-        is present. This allows the reader to potentially skip loading metadata
-        from the underlying data files.
+        Whether to allow using statistics from Iceberg metadata files.
 
         .. warning::
             This functionality is considered **unstable**. It may be changed
             at any point without it being considered a breaking change.
+
+        When a filter is present, this allows using min/max statistics present
+        in the Iceberg metadata files can be used to allow the reader to skip
+        scanning of metadata from data files that are guaranteed to not match
+        the filter.
+
+        If a row-count is requested (i.e. `scan_iceberg().select(pl.len())`), this
+        allows returning a count directly from Iceberg metadata. Note however that
+        for datasets containing position delete files, `fast_deletion_count` must
+        also be enabled for this to work.
+
+    fast_deletion_count
+        Allows returning a row count calculated directly from Iceberg metadata
+        for datasets that contain position delete files. This will give incorrect
+        results if position delete files contain duplicated entries.
+
+        .. warning::
+            This functionality is considered **unstable**. It may be changed
+            at any point without it being considered a breaking change.
+    use_pyiceberg_filter
+        Convert and push the filter to PyIceberg where possible.
 
     Returns
     -------
@@ -140,12 +164,29 @@ def scan_iceberg(
         msg = "the `reader_override` parameter of `scan_iceberg()` is considered unstable."
         issue_unstable_warning(msg)
 
+    if fast_deletion_count is not None:
+        msg = "the `fast_deletion_count` parameter of `scan_iceberg()` is considered unstable."
+        issue_unstable_warning(msg)
+    else:
+        fast_deletion_count = False
+
+    table: Table | None = None
+
+    if importlib.util.find_spec("pyiceberg.table") is not None:
+        from pyiceberg.table import Table
+
+        if isinstance(source, Table):
+            table = source
+
     dataset = IcebergDataset(
-        source,
+        table_=NoPickleOption(table),
+        metadata_path_=str(source) if table is None else None,
         snapshot_id=snapshot_id,
         iceberg_storage_properties=storage_options,
         reader_override=reader_override,
         use_metadata_statistics=use_metadata_statistics,
+        fast_deletion_count=fast_deletion_count,
+        use_pyiceberg_filter=use_pyiceberg_filter,
     )
 
     return wrap_ldf(PyLazyFrame.new_from_dataset_object(dataset))

@@ -70,22 +70,16 @@ use std::ops::Deref;
 
 use arrow::array::LIST_VALUES_NAME;
 use arrow::legacy::conversion::chunk_to_struct;
+use polars_core::chunked_array::cast::CastOptions;
 use polars_core::error::to_compute_err;
 use polars_core::prelude::*;
 use polars_error::{PolarsResult, polars_bail};
 use polars_json::json::write::FallibleStreamingIterator;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use simd_json::BorrowedValue;
 use simd_json::prelude::*;
 
 use crate::mmap::{MmapBytesReader, ReaderBytes};
 use crate::prelude::*;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "dsl-schema", derive(schemars::JsonSchema))]
-pub struct JsonWriterOptions {}
 
 /// The format to use to write the DataFrame to JSON: `Json` (a JSON array)
 /// or `JsonLines` (each row output on a separate line).
@@ -144,7 +138,7 @@ where
 
     fn finish(&mut self, df: &mut DataFrame) -> PolarsResult<()> {
         df.align_chunks_par();
-        let fields = df
+        let fields = df.columns()
             .iter()
             .map(|s| {
                 #[cfg(feature = "object")]
@@ -189,7 +183,7 @@ where
     /// # Panics
     /// The caller must ensure the chunks in the given [`DataFrame`] are aligned.
     pub fn write_batch(&mut self, df: &DataFrame) -> PolarsResult<()> {
-        let fields = df
+        let fields = df.columns()
             .iter()
             .map(|s| {
                 #[cfg(feature = "object")]
@@ -275,6 +269,7 @@ where
                 polars_ensure!(!self.ignore_errors, InvalidOperation: "'ignore_errors' only supported in ndjson");
                 let mut bytes = rb.deref().to_vec();
                 let owned = &mut vec![];
+                #[expect(deprecated)] // JSON is not a row-format
                 compression::maybe_decompress_bytes(&bytes, owned)?;
                 // the easiest way to avoid ownership issues is by implicitly figuring out if
                 // decompression happened (owned is only populated on decompress), then pick which bytes to parse
@@ -295,8 +290,9 @@ where
                     self.schema,
                     self.schema_overwrite,
                     self.infer_schema_len,
+                    self.ignore_errors,
                 )
-            },
+            }
             JsonFormat::JsonLines => {
                 let mut json_reader = CoreJsonReader::new(
                     rb,
@@ -316,10 +312,11 @@ where
                 )?;
                 let mut df: DataFrame = json_reader.as_df()?;
                 if self.rechunk {
-                    df.as_single_chunk_par();
+                    df.rechunk_mut_par();
                 }
+
                 Ok(df)
-            },
+            }
         }?;
 
         // TODO! Ensure we don't materialize the columns we don't need
@@ -336,8 +333,9 @@ pub fn json_to_data_frame(
     schema: Option<SchemaRef>,
     schema_overwrite: Option<&Schema>,
     infer_schema_len: Option<NonZeroUsize>,
+    ignore_errors: bool,
 ) -> PolarsResult<DataFrame> {
-    if let BorrowedValue::Array(array) = json_value {
+    if let BorrowedValue::Array(array) = &json_value {
         if array.is_empty() & schema.is_none() & schema_overwrite.is_none() {
             return Ok(DataFrame::empty());
         }
@@ -345,63 +343,99 @@ pub fn json_to_data_frame(
 
     let allow_extra_fields_in_struct = schema.is_some();
 
-    // struct type
-    let dtype = if let Some(mut schema) = schema {
-        if let Some(overwrite) = schema_overwrite {
-            let mut_schema = Arc::make_mut(&mut schema);
-            overwrite_schema(mut_schema, overwrite)?;
-        }
-
-        DataType::Struct(schema.iter_fields().collect()).to_arrow(CompatLevel::newest())
+    let mut schema = if let Some(schema) = schema {
+        Arc::unwrap_or_clone(schema)
     } else {
-        // infer
-        let inner_dtype = if let BorrowedValue::Array(values) = json_value {
+        // Infer.
+        let inner_dtype = if let BorrowedValue::Array(values) = &json_value {
             infer::json_values_to_supertype(
                 values,
-                infer_schema_len.unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
+                infer_schema_len
+                    .unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
             )?
-            .to_arrow(CompatLevel::newest())
         } else {
-            polars_json::json::infer(json_value)?
+            DataType::from_arrow_dtype(&polars_json::json::infer(json_value)?)
         };
 
-        if let Some(overwrite) = schema_overwrite {
-            let ArrowDataType::Struct(fields) = inner_dtype else {
-                polars_bail!(ComputeError: "can only deserialize json objects")
-            };
+        let DataType::Struct(fields) = inner_dtype else {
+            polars_bail!(ComputeError: "can only deserialize json objects")
+        };
 
-            let mut schema = Schema::from_iter(fields.iter().map(Into::<Field>::into));
-            overwrite_schema(&mut schema, overwrite)?;
-
-            DataType::Struct(
-                schema
-                    .into_iter()
-                    .map(|(name, dt)| Field::new(name, dt))
-                    .collect(),
-            )
-            .to_arrow(CompatLevel::newest())
-        } else {
-            inner_dtype
-        }
+        Schema::from_iter(fields)
     };
 
-    let dtype = if let BorrowedValue::Array(_) = &json_value {
+    if let Some(overwrite) = schema_overwrite {
+        overwrite_schema(&mut schema, overwrite)?;
+    }
+
+    let mut needs_cast = false;
+    let deserialize_schema = schema
+        .iter()
+        .map(|(name, dt)| {
+            Field::new(
+                name.clone(),
+                dt.clone().map_leaves(&mut |leaf_dt| {
+                    // Deserialize enums and categoricals as strings first.
+                    match leaf_dt {
+                        #[cfg(feature = "dtype-categorical")]
+                        DataType::Enum(..) | DataType::Categorical(..) => {
+                            needs_cast = true;
+                            DataType::String
+                        }
+                        leaf_dt => leaf_dt,
+                    }
+                }),
+            )
+        })
+        .collect();
+
+    let arrow_dtype =
+        DataType::Struct(deserialize_schema).to_arrow(CompatLevel::newest());
+
+    let arrow_dtype = if let BorrowedValue::Array(_) = &json_value {
         ArrowDataType::LargeList(Box::new(arrow::datatypes::Field::new(
             LIST_VALUES_NAME,
-            dtype,
+            arrow_dtype,
             true,
         )))
     } else {
-        dtype
+        arrow_dtype
     };
 
-    let arr = polars_json::json::deserialize(json_value, dtype, allow_extra_fields_in_struct)?;
-    let arr = arr
-        .as_any()
-        .downcast_ref::<StructArray>()
-        .ok_or_else(|| polars_err!(ComputeError: "can only deserialize json objects"))?;
+    let arr = polars_json::json::deserialize(
+        json_value,
+        arrow_dtype,
+        allow_extra_fields_in_struct,
+    )?;
 
-    DataFrame::try_from(arr.clone())
+    let arr = arr.as_any().downcast_ref::<StructArray>().ok_or_else(
+        || polars_err!(ComputeError: "can only deserialize json objects"),
+    )?;
+
+    let mut df = DataFrame::try_from(arr.clone())?;
+
+    if df.width() == 0 && df.height() <= 1 {
+        // read_json("{}")
+        unsafe { df.set_height(0) };
+    }
+
+    if needs_cast {
+        for (col, dt) in unsafe { df.columns_mut() }
+            .iter_mut()
+            .zip(schema.iter_values())
+        {
+            *col = col.cast_with_options(
+                dt,
+                if ignore_errors {
+                    CastOptions::NonStrict
+                } else {
+                    CastOptions::Strict
+                },
+            )?;
+        }
+    }
+
+    Ok(df)
 }
 
 impl<'a, R> JsonReader<'a, R>
@@ -444,7 +478,7 @@ where
     /// Set the reader's column projection: the names of the columns to keep after deserialization. If `None`, all
     /// columns are kept.
     ///
-    /// Setting `projection` to the columns you want to keep is more efficient than deserializing all the columns and
+    /// Setting `projection` to the columns you want to keep is more efficient than deserializing all of the columns and
     /// then dropping the ones you don't want.
     pub fn with_projection(mut self, projection: Option<Vec<PlSmallStr>>) -> Self {
         self.projection = projection;

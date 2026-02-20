@@ -3,19 +3,22 @@ from __future__ import annotations
 import contextlib
 import os
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Literal
+from typing import IO, TYPE_CHECKING, Literal
 
 import polars._reexport as pl
 import polars.functions as F
 from polars._dependencies import import_optional
-from polars._utils.deprecation import deprecate_renamed_parameter
+from polars._utils.deprecation import (
+    deprecate_renamed_parameter,
+    issue_deprecation_warning,
+)
 from polars._utils.various import (
-    is_path_or_str_sequence,
     is_str_sequence,
     normalize_filepath,
 )
 from polars._utils.wrap import wrap_df, wrap_ldf
 from polars.io._utils import (
+    get_sources,
     is_glob_pattern,
     is_local_file,
     parse_columns_arg,
@@ -25,6 +28,7 @@ from polars.io._utils import (
 from polars.io.cloud.credential_provider._builder import (
     _init_credential_provider_builder,
 )
+from polars.io.scan_options._options import ScanOptions
 
 with contextlib.suppress(ImportError):  # Module not available when building docs
     from polars._plr import PyDataFrame, PyLazyFrame
@@ -34,7 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from polars import DataFrame, DataType, LazyFrame
-    from polars._typing import SchemaDict
+    from polars._typing import SchemaDict, StorageOptionsDict
     from polars.io.cloud import CredentialProviderFunction
 
 
@@ -47,7 +51,7 @@ def read_ipc(
     n_rows: int | None = None,
     use_pyarrow: bool = False,
     memory_map: bool = True,
-    storage_options: dict[str, Any] | None = None,
+    storage_options: StorageOptionsDict | None = None,
     row_index_name: str | None = None,
     row_index_offset: int = 0,
     rechunk: bool = True,
@@ -67,7 +71,7 @@ def read_ipc(
     source
         Path to a file or a file-like object (by "file-like object" we refer to objects
         that have a `read()` method, such as a file handler like the builtin `open`
-        function, or a `BytesIO` instance). If `fsspec` is installed, it will be used
+        function, or a `BytesIO` instance). If `fsspec` is installed, it might be used
         to open remote files. For file-like objects, the stream position may not be
         updated accordingly after reading.
     columns
@@ -238,7 +242,7 @@ def read_ipc_stream(
     columns: list[int] | list[str] | None = None,
     n_rows: int | None = None,
     use_pyarrow: bool = False,
-    storage_options: dict[str, Any] | None = None,
+    storage_options: StorageOptionsDict | None = None,
     row_index_name: str | None = None,
     row_index_offset: int = 0,
     rechunk: bool = True,
@@ -257,7 +261,7 @@ def read_ipc_stream(
     source
         Path to a file or a file-like object (by "file-like object" we refer to objects
         that have a `read()` method, such as a file handler like the builtin `open`
-        function, or a `BytesIO` instance). If `fsspec` is installed, it will be used
+        function, or a `BytesIO` instance). If `fsspec` is installed, it might be used
         to open remote files. For file-like objects, the stream position may not be
         updated accordingly after reading.
     columns
@@ -380,15 +384,17 @@ def scan_ipc(
     rechunk: bool = False,
     row_index_name: str | None = None,
     row_index_offset: int = 0,
-    storage_options: dict[str, Any] | None = None,
+    glob: bool = True,
+    storage_options: StorageOptionsDict | None = None,
     credential_provider: CredentialProviderFunction | Literal["auto"] | None = "auto",
     memory_map: bool = True,
-    retries: int = 2,
+    retries: int | None = None,
     file_cache_ttl: int | None = None,
     hive_partitioning: bool | None = None,
     hive_schema: SchemaDict | None = None,
     try_parse_hive_dates: bool = True,
     include_file_paths: str | None = None,
+    _record_batch_statistics: bool = False,
 ) -> LazyFrame:
     """
     Lazily read from an Arrow IPC (Feather v2) file or multiple files via glob patterns.
@@ -417,6 +423,8 @@ def scan_ipc(
         DataFrame
     row_index_offset
         Offset to start the row index column (only use if the name is set)
+    glob
+        Expand path given via globbing rules.
     storage_options
         Options that indicate how to connect to a cloud provider.
 
@@ -446,10 +454,16 @@ def scan_ipc(
         Only uncompressed IPC files can be memory mapped.
     retries
         Number of retries if accessing a cloud instance fails.
+
+        .. deprecated:: 1.37.1
+            Pass {"max_retries": n} via `storage_options` instead.
     file_cache_ttl
         Amount of time to keep downloaded cloud files since their last access time,
         in seconds. Uses the `POLARS_FILE_CACHE_TTL` environment variable
         (which defaults to 1 hour) if not given.
+
+        .. deprecated:: 1.37.1
+            Pass {"file_cache_ttl": n} via `storage_options` instead.
     hive_partitioning
         Infer statistics and schema from Hive partitioned URL and use them
         to prune reads. This is unset by default (i.e. `None`), meaning it is
@@ -467,48 +481,48 @@ def scan_ipc(
     include_file_paths
         Include the path of the source file(s) as a column with this name.
     """
-    sources: list[str] | list[Path] | list[IO[bytes]] | list[bytes] = []
-    if isinstance(source, (str, Path)):
-        source = normalize_filepath(source, check_not_directory=False)
-    elif isinstance(source, list):
-        if is_path_or_str_sequence(source):
-            sources = [
-                normalize_filepath(source, check_not_directory=False)
-                for source in source
-            ]
-        else:
-            sources = source
-
-        source = None  # type: ignore[assignment]
-
     # Memory Mapping is now a no-op
     _ = memory_map
 
+    sources = get_sources(source)
+
+    if retries is not None:
+        msg = "the `retries` parameter was deprecated in 1.37.1; specify 'max_retries' in `storage_options` instead."
+        issue_deprecation_warning(msg)
+        storage_options = storage_options or {}
+        storage_options["max_retries"] = retries
+
+    if file_cache_ttl is not None:
+        msg = "the `file_cache_ttl` parameter was deprecated in 1.37.1; specify 'file_cache_ttl' in `storage_options` instead."
+        issue_deprecation_warning(msg)
+        storage_options = storage_options or {}
+        storage_options["file_cache_ttl"] = file_cache_ttl
+
     credential_provider_builder = _init_credential_provider_builder(
-        credential_provider, source, storage_options, "scan_parquet"
+        credential_provider, sources, storage_options, "scan_parquet"
     )
     del credential_provider
 
-    if storage_options:
-        storage_options = list(storage_options.items())  # type: ignore[assignment]
-    else:
-        # Handle empty dict input
-        storage_options = None
-
     pylf = PyLazyFrame.new_from_ipc(
-        source,
-        sources,
-        n_rows,
-        cache,
-        rechunk,
-        parse_row_index_args(row_index_name, row_index_offset),
-        cloud_options=storage_options,
-        credential_provider=credential_provider_builder,
-        retries=retries,
-        file_cache_ttl=file_cache_ttl,
-        hive_partitioning=hive_partitioning,
-        hive_schema=hive_schema,
-        try_parse_hive_dates=try_parse_hive_dates,
-        include_file_paths=include_file_paths,
+        sources=sources,
+        record_batch_statistics=_record_batch_statistics,
+        scan_options=ScanOptions(
+            row_index=(
+                (row_index_name, row_index_offset)
+                if row_index_name is not None
+                else None
+            ),
+            pre_slice=(0, n_rows) if n_rows is not None else None,
+            include_file_paths=include_file_paths,
+            glob=glob,
+            hive_partitioning=hive_partitioning,
+            hive_schema=hive_schema,
+            try_parse_hive_dates=try_parse_hive_dates,
+            rechunk=rechunk,
+            cache=cache,
+            storage_options=storage_options,
+            credential_provider=credential_provider_builder,
+        ),
     )
+
     return wrap_ldf(pylf)

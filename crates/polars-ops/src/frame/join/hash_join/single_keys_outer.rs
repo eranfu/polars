@@ -229,7 +229,8 @@ where
     let random_state = hash_tbls[0].hasher();
 
     // we pre hash the probing values
-    let (probe_hashes, _) = create_hash_and_keys_threaded_vectorized(probe, Some(random_state.clone()));
+    let (probe_hashes, _) =
+        create_hash_and_keys_threaded_vectorized(probe, Some(random_state.clone()));
 
     let n_tables = hash_tbls.len();
     try_raise_keyboard_interrupt();

@@ -31,7 +31,7 @@ _COL_LIMIT = 5  # max number of generated cols
 
 
 @st.composite
-def series(
+def series(  # noqa: D417
     draw: DrawFn,
     /,
     *,
@@ -247,6 +247,8 @@ def series(
         s = select(when(mask).then(s).alias(s.name)).to_series()
 
     # Apply chunking
+    if not allow_chunks:
+        s = s.rechunk()
     if allow_chunks and size > 1 and draw(st.booleans()):
         split_at = size // 2
         s = s[:split_at].append(s[split_at:])
@@ -295,7 +297,7 @@ def dataframes(
 
 
 @st.composite
-def dataframes(
+def dataframes(  # noqa: D417
     draw: DrawFn,
     /,
     cols: int | column | Sequence[column] | None = None,

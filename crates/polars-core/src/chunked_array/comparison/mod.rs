@@ -3,7 +3,7 @@ mod scalar;
 #[cfg(feature = "dtype-categorical")]
 mod categorical;
 
-use std::ops::Not;
+use std::ops::{BitAnd, BitOr, Not};
 
 use arrow::array::BooleanArray;
 use arrow::bitmap::{Bitmap, BitmapBuilder};
@@ -14,6 +14,7 @@ use polars_compute::comparisons::{TotalEqKernel, TotalOrdKernel};
 use crate::prelude::*;
 use crate::series::IsSorted;
 use crate::series::implementations::null::NullChunked;
+use crate::utils::align_chunks_binary;
 
 impl<T> ChunkCompareEq<&ChunkedArray<T>> for ChunkedArray<T>
 where
@@ -798,7 +799,7 @@ where
     if (a.len() != b.len() && !broadcasts) || a.struct_fields().len() != b.struct_fields().len() {
         BooleanChunked::full(PlSmallStr::EMPTY, op_is_ne, a.len())
     } else {
-        let (a, b) = crate::utils::align_chunks_binary(a, b);
+        let (a, b) = align_chunks_binary(a, b);
 
         let mut out = a
             .fields_as_series()
@@ -811,30 +812,28 @@ where
         if is_missing && (a.has_nulls() || b.has_nulls()) {
             // Do some allocations so that we can use the Series dispatch, it otherwise
             // gets complicated dealing with combinations of ==, != and broadcasting.
-            let default = || {
-                BooleanChunked::with_chunk(PlSmallStr::EMPTY, BooleanArray::from_slice([true]))
-                    .into_series()
-            };
-            let validity_to_series = |x| unsafe {
+            let default =
+                || BooleanChunked::with_chunk(PlSmallStr::EMPTY, BooleanArray::from_slice([true]));
+            let validity_to_ca = |x| unsafe {
                 BooleanChunked::with_chunk(
                     PlSmallStr::EMPTY,
                     BooleanArray::from_inner_unchecked(ArrowDataType::Boolean, x, None),
                 )
-                .into_series()
             };
 
-            out = reduce(
-                out,
-                op(
-                    &a.rechunk_validity()
-                        .map_or_else(default, validity_to_series),
-                    &b.rechunk_validity()
-                        .map_or_else(default, validity_to_series),
-                ),
-            )
+            let a_s = a.rechunk_validity().map_or_else(default, validity_to_ca);
+            let b_s = b.rechunk_validity().map_or_else(default, validity_to_ca);
+
+            let shared_validity = (&a_s).bitand(&b_s);
+            let valid_nested = if op_is_ne {
+                (shared_validity).bitand(out)
+            } else {
+                (!shared_validity).bitor(out)
+            };
+            out = reduce(op(&a_s.into_series(), &b_s.into_series()), valid_nested);
         }
 
-        if !is_missing && (a.null_count() > 0 || b.null_count() > 0) {
+        if !is_missing && (a.has_nulls() || b.has_nulls()) {
             let mut a = a;
             let mut b = b;
 
@@ -867,7 +866,6 @@ where
 impl ChunkCompareEq<&StructChunked> for StructChunked {
     type Item = BooleanChunked;
     fn equal(&self, rhs: &StructChunked) -> BooleanChunked {
-        use std::ops::BitAnd;
         struct_helper(
             self,
             rhs,
@@ -879,7 +877,6 @@ impl ChunkCompareEq<&StructChunked> for StructChunked {
     }
 
     fn equal_missing(&self, rhs: &StructChunked) -> BooleanChunked {
-        use std::ops::BitAnd;
         struct_helper(
             self,
             rhs,
@@ -895,7 +892,7 @@ impl ChunkCompareEq<&StructChunked> for StructChunked {
             self,
             rhs,
             |l, r| l.not_equal_missing(r).unwrap(),
-            |a, b| a | b,
+            |a, b| a.bitor(b),
             true,
             false,
         )
@@ -906,7 +903,7 @@ impl ChunkCompareEq<&StructChunked> for StructChunked {
             self,
             rhs,
             |l, r| l.not_equal_missing(r).unwrap(),
-            |a, b| a | b,
+            |a, b| a.bitor(b),
             true,
             true,
         )

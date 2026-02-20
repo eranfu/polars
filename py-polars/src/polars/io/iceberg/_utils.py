@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import ast
 import contextlib
+import sys
 from _ast import GtE, Lt, LtE
 from ast import (
     Attribute,
@@ -21,7 +22,7 @@ from ast import (
 )
 from dataclasses import dataclass
 from functools import cache, singledispatch
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import polars._reexport as pl
 from polars._utils.convert import to_py_date, to_py_datetime
@@ -30,7 +31,7 @@ from polars._utils.wrap import wrap_s
 from polars.exceptions import ComputeError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from datetime import date, datetime
 
     import pyiceberg
@@ -51,10 +52,22 @@ _temporal_conversions: dict[str, Callable[..., datetime | date]] = {
 ICEBERG_TIME_TO_NS: int = 1000
 
 
+# PyIceberg on Windows uses `file://C:/` rather than `file:///C:/`.
+def _normalize_windows_iceberg_file_uri(path: str) -> str:
+    if (
+        sys.platform == "win32"
+        and path.startswith("file://")
+        and not path.startswith("file:///")
+    ):
+        return f"file:///{path.removeprefix('file://')}"
+
+    return path
+
+
 def _scan_pyarrow_dataset_impl(
     tbl: Table,
     with_columns: list[str] | None = None,
-    predicate: str | None = None,
+    iceberg_table_filter: Any | None = None,
     n_rows: int | None = None,
     snapshot_id: int | None = None,
     **kwargs: Any,
@@ -68,8 +81,8 @@ def _scan_pyarrow_dataset_impl(
         pyarrow dataset
     with_columns
         Columns that are projected
-    predicate
-        pyarrow expression that can be evaluated with eval
+    iceberg_table_filter
+        PyIceberg filter expression
     n_rows:
         Materialize only n rows from the arrow dataset.
     snapshot_id:
@@ -90,17 +103,26 @@ def _scan_pyarrow_dataset_impl(
     if with_columns is not None:
         scan = scan.select(*with_columns)
 
-    if predicate is not None:
-        try:
-            expr_ast = _to_ast(predicate)
-            pyiceberg_expr = _convert_predicate(expr_ast)
-        except ValueError as e:
-            msg = f"Could not convert predicate to PyIceberg: {predicate}"
-            raise ValueError(msg) from e
-
-        scan = scan.filter(pyiceberg_expr)
+    if iceberg_table_filter is not None:
+        scan = scan.filter(iceberg_table_filter)
 
     return from_arrow(scan.to_arrow())
+
+
+def _ensure_boolean_expression(result: Any) -> Any:
+    """Wrap bare field references as EqualTo(field, True)."""
+    if isinstance(result, list) and len(result) == 1:
+        return pyiceberg.expressions.EqualTo(result[0], True)  # type: ignore[misc, call-arg, arg-type]
+    return result
+
+
+def try_convert_pyarrow_predicate(pyarrow_predicate: str) -> Any | None:
+    with contextlib.suppress(Exception):
+        expr_ast = _to_ast(pyarrow_predicate)
+        result = _convert_predicate(expr_ast)
+        return _ensure_boolean_expression(result)
+
+    return None
 
 
 def _to_ast(expr: str) -> ast.expr:
@@ -147,7 +169,8 @@ def _(a: Name) -> Any:
 @_convert_predicate.register(UnaryOp)
 def _(a: UnaryOp) -> Any:
     if isinstance(a.op, Invert):
-        return pyiceberg.expressions.Not(_convert_predicate(a.operand))
+        operand = _ensure_boolean_expression(_convert_predicate(a.operand))
+        return pyiceberg.expressions.Not(operand)
     else:
         msg = f"Unexpected UnaryOp: {a}"
         raise TypeError(msg)
@@ -167,11 +190,11 @@ def _(a: Call) -> Any:
     else:
         ref = _convert_predicate(a.func.value)[0]  # type: ignore[attr-defined]
         if f == "isin":
-            return pyiceberg.expressions.In(ref, args[0])
+            return pyiceberg.expressions.In(ref, args[0])  # type: ignore[misc, call-arg]
         elif f == "is_null":
-            return pyiceberg.expressions.IsNull(ref)
+            return pyiceberg.expressions.IsNull(ref)  # type: ignore[misc]
         elif f == "is_nan":
-            return pyiceberg.expressions.IsNaN(ref)
+            return pyiceberg.expressions.IsNaN(ref)  # type: ignore[misc]
 
     msg = f"Unknown call: {f!r}"
     raise ValueError(msg)
@@ -184,8 +207,8 @@ def _(a: Attribute) -> Any:
 
 @_convert_predicate.register(BinOp)
 def _(a: BinOp) -> Any:
-    lhs = _convert_predicate(a.left)
-    rhs = _convert_predicate(a.right)
+    lhs = _ensure_boolean_expression(_convert_predicate(a.left))
+    rhs = _ensure_boolean_expression(_convert_predicate(a.right))
 
     op = a.op
     if isinstance(op, BitAnd):
@@ -204,15 +227,15 @@ def _(a: Compare) -> Any:
     rhs = _convert_predicate(a.comparators[0])
 
     if isinstance(op, Gt):
-        return pyiceberg.expressions.GreaterThan(lhs, rhs)
+        return pyiceberg.expressions.GreaterThan(lhs, rhs)  # type: ignore[misc, call-arg]
     if isinstance(op, GtE):
-        return pyiceberg.expressions.GreaterThanOrEqual(lhs, rhs)
+        return pyiceberg.expressions.GreaterThanOrEqual(lhs, rhs)  # type: ignore[misc, call-arg]
     if isinstance(op, Eq):
-        return pyiceberg.expressions.EqualTo(lhs, rhs)
+        return pyiceberg.expressions.EqualTo(lhs, rhs)  # type: ignore[misc, call-arg]
     if isinstance(op, Lt):
-        return pyiceberg.expressions.LessThan(lhs, rhs)
+        return pyiceberg.expressions.LessThan(lhs, rhs)  # type: ignore[misc, call-arg]
     if isinstance(op, LtE):
-        return pyiceberg.expressions.LessThanOrEqual(lhs, rhs)
+        return pyiceberg.expressions.LessThanOrEqual(lhs, rhs)  # type: ignore[misc, call-arg]
     else:
         msg = f"Unknown comparison: {op}"
         raise TypeError(msg)
@@ -315,10 +338,10 @@ class IdentityTransformedPartitionValuesBuilder:
                 partition_spec_id
             ]
         except KeyError:
-            self.partition_values = {
-                k: f"partition spec ID not found: {partition_spec_id}"
-                for k in self.partition_values
-            }
+            self.partition_values = dict.fromkeys(
+                self.partition_values,
+                f"partition spec ID not found: {partition_spec_id}",
+            )
             return
 
         for i, source_field_id in identity_transforms:

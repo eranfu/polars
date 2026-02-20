@@ -6,6 +6,7 @@ use std::mem::MaybeUninit;
 use super::parser::next_line_position;
 #[cfg(feature = "decompress")]
 use super::parser::next_line_position_naive;
+use super::splitfields::SplitFields;
 
 #[cfg(feature = "decompress")]
 fn decompress_impl<R: Read>(
@@ -43,8 +44,7 @@ fn decompress_impl<R: Read>(
                     }
                     // now that we have enough, we compute the number of fields (also takes embedding into account)
                     expected_fields =
-                        super::splitfields::SplitFields::new(&out, separator, quote_char, eol_char)
-                            .count();
+                        SplitFields::new(&out, separator, quote_char, eol_char).count();
                     break;
                 }
             }
@@ -94,23 +94,21 @@ pub(crate) fn decompress(
 ) -> Option<Vec<u8>> {
     use crate::utils::compression::SupportedCompression;
 
-    if let Some(algo) = SupportedCompression::check(bytes) {
-        match algo {
-            SupportedCompression::GZIP => {
-                let mut decoder = flate2::read::MultiGzDecoder::new(bytes);
-                decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
-            },
-            SupportedCompression::ZLIB => {
-                let mut decoder = flate2::read::ZlibDecoder::new(bytes);
-                decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
-            },
-            SupportedCompression::ZSTD => {
-                let mut decoder = zstd::Decoder::with_buffer(bytes).ok()?;
-                decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
-            },
-        }
-    } else {
-        None
+    let algo = SupportedCompression::check(bytes)?;
+
+    match algo {
+        SupportedCompression::GZIP => {
+            let mut decoder = flate2::read::MultiGzDecoder::new(bytes);
+            decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
+        },
+        SupportedCompression::ZLIB => {
+            let mut decoder = flate2::read::ZlibDecoder::new(bytes);
+            decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
+        },
+        SupportedCompression::ZSTD => {
+            let mut decoder = zstd::Decoder::with_buffer(bytes).ok()?;
+            decompress_impl(&mut decoder, n_rows, separator, quote_char, eol_char)
+        },
     }
 }
 

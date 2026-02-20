@@ -45,10 +45,10 @@ pub trait SeriesMethods: SeriesSealed {
 
         let height = counts.len();
         let cols = vec![values, counts];
-        let df = unsafe { DataFrame::new_no_checks(height, cols) };
+        let df = unsafe { DataFrame::new_unchecked(height, cols) };
         if sort {
             df.sort(
-                &[name],
+                [name],
                 SortMultipleOptions::default()
                     .with_order_descending(true)
                     .with_multithreaded(parallel),
@@ -60,18 +60,10 @@ pub trait SeriesMethods: SeriesSealed {
 
     #[cfg(feature = "hash")]
     fn hash(&self, build_hasher: PlSeedableRandomStateQuality) -> UInt64Chunked {
-        let s = self.as_series().to_physical_repr();
-        match s.dtype() {
-            DataType::List(_) => {
-                let mut ca = s.list().unwrap().clone();
-                crate::chunked_array::hash::hash(&mut ca, build_hasher)
-            },
-            _ => {
-                let mut h = vec![];
-                s.0.vec_hash(build_hasher, &mut h).unwrap();
-                UInt64Chunked::from_vec(s.name().clone(), h)
-            },
-        }
+        let s = self.as_series();
+        let mut h = vec![];
+        s.0.vec_hash(build_hasher, &mut h).unwrap();
+        UInt64Chunked::from_vec(s.name().clone(), h)
     }
 
     fn ensure_sorted_arg(&self, operation: &str) -> PolarsResult<()> {
@@ -103,13 +95,14 @@ pub trait SeriesMethods: SeriesSealed {
                 &[s.clone().into()],
                 &[options.descending],
                 &[options.nulls_last],
+                false,
             )?;
             return encoded.into_series().is_sorted(options);
         }
 
         let s_len = s.len();
         if null_count == s_len {
-            // All nulls are all equal
+            // All nulls is all equal
             return Ok(true);
         }
         // Check if nulls are in the right location.

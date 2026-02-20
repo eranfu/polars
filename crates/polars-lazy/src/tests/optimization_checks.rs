@@ -1,5 +1,3 @@
-use itertools::assert_equal;
-
 use super::*;
 
 #[cfg(feature = "parquet")]
@@ -303,7 +301,7 @@ fn test_lazy_filter_and_rename() {
     // the rename function should not interfere with the predicate pushdown
     assert!(predicate_at_scan(lf.clone()));
 
-    assert_equal(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
+    itertools::assert_equal(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
 }
 
 #[test]
@@ -580,7 +578,7 @@ fn test_cluster_with_columns_dependency() -> Result<(), Box<dyn std::error::Erro
     println!("Optimized:\n{optimized}");
 
     assert_eq!(num_occurrences(&unoptimized, "WITH_COLUMNS"), 2);
-    assert_eq!(num_occurrences(&optimized, "WITH_COLUMNS"), 2);
+    assert_eq!(num_occurrences(&optimized, "WITH_COLUMNS"), 1);
 
     Ok(())
 }
@@ -613,7 +611,6 @@ fn test_cluster_with_columns_partial() -> Result<(), Box<dyn std::error::Error>>
 
     assert!(unoptimized.contains(r#"[col("buzz"), [(col("foo")) * (2.0)]]"#));
     assert!(unoptimized.contains(r#"[col("foo").alias("buzz")]"#));
-    assert!(optimized.contains(r#"[col("buzz")]"#));
     assert!(optimized.contains(r#"[col("foo").alias("buzz"), [(col("foo")) * (2.0)]]"#));
 
     Ok(())

@@ -11,7 +11,7 @@ use polars_core::{POOL, config};
 use polars_expr::hash_keys::HashKeys;
 use polars_expr::idx_table::{IdxTable, new_idx_table};
 use polars_io::pl_async::get_runtime;
-use polars_ops::frame::{JoinArgs, JoinType, MaintainOrderJoin};
+use polars_ops::frame::{JoinArgs, JoinBuildSide, JoinType, MaintainOrderJoin};
 use polars_ops::series::coalesce_columns;
 use polars_utils::cardinality_sketch::CardinalitySketch;
 use polars_utils::hashing::HashPartitioner;
@@ -25,7 +25,6 @@ use rayon::prelude::*;
 
 use super::{BufferedStream, JOIN_SAMPLE_LIMIT, LOPSIDED_SAMPLE_FACTOR};
 use crate::async_executor;
-use crate::async_primitives::connector::{Receiver, Sender};
 use crate::async_primitives::wait_group::WaitGroup;
 use crate::expression::StreamExpr;
 use crate::morsel::{SourceToken, get_ideal_morsel_size};
@@ -136,7 +135,8 @@ fn compute_payload_selector(
 fn postprocess_join(df: DataFrame, params: &EquiJoinParams) -> DataFrame {
     if params.args.how == JoinType::Full && params.args.should_coalesce() {
         // TODO: don't do string-based column lookups for each dataframe, pre-compute coalesce indices.
-        df.get_columns()
+        let new_cols = df
+            .columns()
             .iter()
             .filter_map(|c| {
                 if let Some(key_idx) = params.left_key_schema.index_of(c.name()) {
@@ -152,7 +152,9 @@ fn postprocess_join(df: DataFrame, params: &EquiJoinParams) -> DataFrame {
 
                 Some(c.clone())
             })
-            .collect()
+            .collect();
+
+        unsafe { DataFrame::new_unchecked(df.height(), new_cols) }
     } else {
         df
     }
@@ -176,7 +178,7 @@ async fn select_keys(
     for selector in key_selectors {
         key_columns.push(selector.evaluate(df, state).await?.into_column());
     }
-    let keys = DataFrame::new_with_broadcast_len(key_columns, df.height())?;
+    let keys = unsafe { DataFrame::new_unchecked_with_broadcast(df.height(), key_columns)? };
     Ok(HashKeys::from_df(
         &keys,
         params.random_state.clone(),
@@ -186,16 +188,15 @@ async fn select_keys(
 }
 
 fn select_payload(df: DataFrame, selector: &[Option<PlSmallStr>]) -> DataFrame {
-    // Maintain height of zero-width dataframes.
-    if df.width() == 0 {
-        return df;
-    }
-
-    df.take_columns()
+    let height = df.height();
+    let new_cols = df
+        .into_columns()
         .into_iter()
         .zip(selector)
         .filter_map(|(c, name)| Some(c.with_name(name.clone()?)))
-        .collect()
+        .collect();
+
+    unsafe { DataFrame::new_unchecked(height, new_cols) }
 }
 
 fn estimate_cardinality(
@@ -257,7 +258,7 @@ struct SampleState {
 
 impl SampleState {
     async fn sink(
-        mut recv: Receiver<Morsel>,
+        mut recv: PortReceiver,
         morsels: &mut Vec<Morsel>,
         len: &mut usize,
         this_final_len: Arc<RelaxedCell<usize>>,
@@ -337,10 +338,17 @@ impl SampleState {
             (false, true) => true,
             (true, false) => false,
 
-            // Estimate cardinality and choose smaller.
             (true, true) => {
-                let (lc, rc) = estimate_cardinalities()?;
-                lc < rc
+                match params.args.build_side {
+                    Some(JoinBuildSide::PreferLeft) => true,
+                    Some(JoinBuildSide::PreferRight) => false,
+                    Some(JoinBuildSide::ForceLeft | JoinBuildSide::ForceRight) => unreachable!(),
+                    None => {
+                        // Estimate cardinality and choose smaller.
+                        let (lc, rc) = estimate_cardinalities()?;
+                        lc < rc
+                    },
+                }
             },
         };
 
@@ -444,7 +452,7 @@ impl BuildState {
     }
 
     async fn partition_and_sink(
-        mut recv: Receiver<Morsel>,
+        mut recv: PortReceiver,
         local: &mut LocalBuilder,
         partitioner: HashPartitioner,
         params: &EquiJoinParams,
@@ -739,8 +747,8 @@ struct ProbeState {
 impl ProbeState {
     /// Returns the max morsel sequence sent.
     async fn partition_and_probe(
-        mut recv: Receiver<Morsel>,
-        mut send: Sender<Morsel>,
+        mut recv: PortReceiver,
+        mut send: PortSender,
         partitions: &[ProbeTable],
         unordered_morsel_seq: &AtomicU64,
         partitioner: HashPartitioner,
@@ -806,10 +814,10 @@ impl ProbeState {
                         let mut build_df = build.freeze_reset();
                         let mut probe_df = probe.freeze_reset();
                         let out_df = if params.left_is_build.unwrap() {
-                            build_df.hstack_mut_unchecked(probe_df.get_columns());
+                            build_df.hstack_mut_unchecked(probe_df.columns());
                             build_df
                         } else {
-                            probe_df.hstack_mut_unchecked(build_df.get_columns());
+                            probe_df.hstack_mut_unchecked(build_df.columns());
                             probe_df
                         };
                         let out_df = postprocess_join(out_df, params);
@@ -1051,12 +1059,12 @@ impl ProbeState {
             let out_df = if params.left_is_build.unwrap() {
                 let probe_df =
                     DataFrame::full_null(&params.right_payload_schema, build_df.height());
-                build_df.hstack_mut_unchecked(probe_df.get_columns());
+                build_df.hstack_mut_unchecked(probe_df.columns());
                 build_df
             } else {
                 let mut probe_df =
                     DataFrame::full_null(&params.left_payload_schema, build_df.height());
-                probe_df.hstack_mut_unchecked(build_df.get_columns());
+                probe_df.hstack_mut_unchecked(build_df.columns());
                 probe_df
             };
             postprocess_join(out_df, params)
@@ -1083,7 +1091,7 @@ struct EmitUnmatchedState {
 impl EmitUnmatchedState {
     async fn emit_unmatched(
         &mut self,
-        mut send: Sender<Morsel>,
+        mut send: PortSender,
         params: &EquiJoinParams,
         num_pipelines: usize,
     ) -> PolarsResult<()> {
@@ -1117,11 +1125,11 @@ impl EmitUnmatchedState {
                     let len = build_df.height();
                     if params.left_is_build.unwrap() {
                         let probe_df = DataFrame::full_null(&params.right_payload_schema, len);
-                        build_df.hstack_mut_unchecked(probe_df.get_columns());
+                        build_df.hstack_mut_unchecked(probe_df.columns());
                         build_df
                     } else {
                         let mut probe_df = DataFrame::full_null(&params.left_payload_schema, len);
-                        probe_df.hstack_mut_unchecked(build_df.get_columns());
+                        probe_df.hstack_mut_unchecked(build_df.columns());
                         probe_df
                     }
                 };
@@ -1178,15 +1186,29 @@ impl EquiJoinNode {
         num_pipelines: usize,
     ) -> PolarsResult<Self> {
         let left_is_build = match args.maintain_order {
-            MaintainOrderJoin::None => {
-                if *JOIN_SAMPLE_LIMIT == 0 {
-                    Some(true)
-                } else {
-                    None
-                }
+            MaintainOrderJoin::None => match args.build_side {
+                Some(JoinBuildSide::ForceLeft) => Some(true),
+                Some(JoinBuildSide::ForceRight) => Some(false),
+                Some(JoinBuildSide::PreferLeft) | Some(JoinBuildSide::PreferRight) | None => {
+                    if *JOIN_SAMPLE_LIMIT == 0 {
+                        Some(args.build_side != Some(JoinBuildSide::PreferRight))
+                    } else {
+                        None
+                    }
+                },
             },
-            MaintainOrderJoin::Left | MaintainOrderJoin::LeftRight => Some(false),
-            MaintainOrderJoin::Right | MaintainOrderJoin::RightLeft => Some(true),
+            MaintainOrderJoin::Left | MaintainOrderJoin::LeftRight => {
+                if args.build_side == Some(JoinBuildSide::ForceLeft) {
+                    polars_warn!("can't force left build-side with left-maintaining cross-join");
+                }
+                Some(false)
+            },
+            MaintainOrderJoin::Right | MaintainOrderJoin::RightLeft => {
+                if args.build_side == Some(JoinBuildSide::ForceRight) {
+                    polars_warn!("can't force right build-side with right-maintaining cross-join");
+                }
+                Some(true)
+            },
         };
 
         let preserve_order_probe = args.maintain_order != MaintainOrderJoin::None;

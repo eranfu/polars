@@ -3,16 +3,17 @@ use std::future::Future;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_trait::async_trait;
 #[cfg(feature = "aws")]
 pub use object_store::aws::AwsCredential;
 #[cfg(feature = "azure")]
 pub use object_store::azure::AzureCredential;
 #[cfg(feature = "gcp")]
 pub use object_store::gcp::GcpCredential;
-#[cfg(feature = "python")]
-use pyo3::PyAny;
-use polars_error::PolarsResult;
+use polars_core::config;
+use polars_error::{PolarsResult, polars_bail};
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "python")]
 use polars_utils::python_function::PythonObject;
@@ -46,7 +47,7 @@ impl PlCredentialProvider {
     /// Intended to be called with an internal `CredentialProviderBuilder` from
     /// py-polars.
     #[cfg(feature = "python")]
-    pub fn from_python_builder(func: pyo3::Py<PyAny>) -> Self {
+    pub fn from_python_builder(func: pyo3::Py<pyo3::PyAny>) -> Self {
         Self::Python(python_impl::PythonCredentialProvider::Builder(Arc::new(
             PythonObject(func),
         )))
@@ -64,13 +65,6 @@ impl PlCredentialProvider {
     /// credential provider.
     ///
     /// This returns `Option` as the auto-initialization case is fallible and falls back to None.
-    #[cfg(any(
-        feature = "python",
-        feature = "aws",
-        feature = "azure",
-        feature = "gcp"
-    ))]
-    #[allow(unused_variables)]
     pub(crate) fn try_into_initialized(
         self,
         clear_cached_credentials: bool,
@@ -97,7 +91,6 @@ pub enum ObjectStoreCredential {
 }
 
 impl ObjectStoreCredential {
-    #[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
     fn variant_name(&self) -> &'static str {
         match self {
             #[cfg(feature = "aws")]
@@ -110,7 +103,6 @@ impl ObjectStoreCredential {
         }
     }
 
-    #[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
     fn panic_type_mismatch(&self, expected: &str) {
         panic!(
             "impl error: credential type mismatch: expected {}, got {} instead",
@@ -216,7 +208,6 @@ type CredentialProviderFunctionImpl = Arc<
 #[derive(Clone)]
 pub struct CredentialProviderFunction(CredentialProviderFunctionImpl);
 
-#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 macro_rules! build_to_object_store_err {
     ($s:expr) => {{
         fn to_object_store_err(
@@ -241,7 +232,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::aws::AwsCredential>>,
         );
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::aws::AwsCredential;
 
@@ -274,7 +265,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::azure::AzureCredential>>,
         );
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::azure::AzureCredential;
 
@@ -303,7 +294,7 @@ impl IntoCredentialProvider for CredentialProviderFunction {
             FetchedCredentialsCache<Arc<object_store::gcp::GcpCredential>>,
         );
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl object_store::CredentialProvider for S {
             type Credential = object_store::gcp::GcpCredential;
 
@@ -394,25 +385,23 @@ impl serde::Serialize for PlCredentialProvider {
 
 #[cfg(feature = "dsl-schema")]
 impl schemars::JsonSchema for PlCredentialProvider {
-    fn schema_name() -> String {
-        "PlCredentialProvider".to_owned()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PlCredentialProvider".into()
     }
 
     fn schema_id() -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(concat!(module_path!(), "::", "PlCredentialProvider"))
     }
 
-    fn json_schema(generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         Vec::<u8>::json_schema(generator)
     }
 }
 
 /// Avoids calling the credential provider function if we have not yet passed the expiry time.
-#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 #[derive(Debug)]
 struct FetchedCredentialsCache<C>(tokio::sync::Mutex<(C, u64, bool)>);
 
-#[cfg(any(feature = "aws", feature = "azure", feature = "gcp"))]
 impl<C: Clone> FetchedCredentialsCache<C> {
     fn new(init_creds: C) -> Self {
         Self(tokio::sync::Mutex::new((init_creds, 0, true)))
@@ -425,7 +414,7 @@ impl<C: Clone> FetchedCredentialsCache<C> {
         // will not poll that block if the credentials have not yet expired.
         update_func: impl Future<Output = PolarsResult<(C, u64)>>,
     ) -> PolarsResult<C> {
-        let verbose = polars_core::config::verbose();
+        let verbose = config::verbose();
 
         fn expiry_msg(last_fetched_expiry: u64, now: u64) -> String {
             if last_fetched_expiry == u64::MAX {
@@ -442,8 +431,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
         let mut inner = self.0.lock().await;
         let (last_fetched_credentials, last_fetched_expiry, log_use_cached) = &mut *inner;
 
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
@@ -464,7 +453,7 @@ impl<C: Clone> FetchedCredentialsCache<C> {
             *log_use_cached = true;
 
             if expiry < current_time && expiry != 0 {
-                polars_error::polars_bail!(
+                polars_bail!(
                     ComputeError:
                     "credential expiry time {} is older than system time {} \
                      by {} seconds",
@@ -479,8 +468,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
                     "[FetchedCredentialsCache]: Finish update_func: new {}",
                     expiry_msg(
                         *last_fetched_expiry,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
                     )
@@ -488,8 +477,8 @@ impl<C: Clone> FetchedCredentialsCache<C> {
             }
         } else if verbose && *log_use_cached {
             *log_use_cached = false;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
             eprintln!(
@@ -677,6 +666,8 @@ mod python_impl {
         #[cfg(feature = "azure")]
         fn into_azure_provider(self) -> object_store::azure::AzureCredentialProvider {
             use object_store::azure::AzureAccessKey;
+            use percent_encoding::percent_decode_str;
+            use polars_core::config::verbose_print_sensitive;
             use polars_error::PolarsResult;
 
             use crate::cloud::credential_provider::{
@@ -685,13 +676,13 @@ mod python_impl {
 
             let func = self.unwrap_as_provider();
 
-            CredentialProviderFunction(Arc::new(move || {
+            return CredentialProviderFunction(Arc::new(move || {
                 let func = func.clone();
                 Box::pin(async move {
                     let mut credentials = None;
 
                     static VALID_KEYS_MSG: &str =
-                        "valid configuration keys are: account_key, bearer_token";
+                        "valid configuration keys are: ('account_key', 'bearer_token', 'sas_token')";
 
                     let expiry = Python::attach(|py| {
                         let v = func.0.call0(py)?.into_bound(py);
@@ -714,6 +705,21 @@ mod python_impl {
                                 "bearer_token" => {
                                     credentials =
                                         Some(object_store::azure::AzureCredential::BearerToken(v))
+                                },
+                                "sas_token" => {
+                                    credentials =
+                                        Some(object_store::azure::AzureCredential::SASToken(
+                                            split_sas(&v).map_err(|err_msg| {
+                                                verbose_print_sensitive(|| {
+                                                    format!("error decoding SAS token: {err_msg} (token: {v})")
+                                                });
+
+                                                PyValueError::new_err(format!(
+                                                    "error decoding SAS token: {err_msg}. \
+                                                    Set POLARS_VERBOSE_SENSITIVE=1 to print the value"
+                                                ))
+                                            })?,
+                                        ))
                                 },
                                 v => {
                                     return pyo3::PyResult::Err(PyValueError::new_err(format!(
@@ -738,7 +744,33 @@ mod python_impl {
                     PolarsResult::Ok((ObjectStoreCredential::Azure(Arc::new(credentials)), expiry))
                 })
             }))
-            .into_azure_provider()
+            .into_azure_provider();
+
+            /// Copied and adjusted from object-store.
+            ///
+            /// https://github.com/apache/arrow-rs-object-store/blob/7a0504b4924fcecee17d768fd7190b8f71b0877f/src/azure/builder.rs#L1072-L1089
+            fn split_sas(sas: &str) -> Result<Vec<(String, String)>, &'static str> {
+                let sas = percent_decode_str(sas)
+                    .decode_utf8()
+                    .map_err(|_| "UTF-8 decode error")?;
+
+                let kv_str_pairs = sas
+                    .trim_start_matches('?')
+                    .split('&')
+                    .filter(|s| !s.chars().all(char::is_whitespace));
+
+                let mut pairs = Vec::new();
+
+                for kv_pair_str in kv_str_pairs {
+                    let (k, v) = kv_pair_str
+                        .trim()
+                        .split_once('=')
+                        .ok_or("missing SAS component")?;
+                    pairs.push((k.into(), v.into()))
+                }
+
+                Ok(pairs)
+            }
         }
 
         #[cfg(feature = "gcp")]
@@ -803,7 +835,10 @@ mod python_impl {
                 py_object
                     .getattr(py, "_storage_update_options")
                     .map_or(Ok(vec![]), |f| {
-                        let v = f.call0(py)?.extract::<pyo3::Bound<'_, PyDict>>(py)?;
+                        let v = f
+                            .call0(py)?
+                            .extract::<pyo3::Bound<'_, PyDict>>(py)
+                            .map_err(pyo3::PyErr::from)?;
 
                         let mut out = Vec::with_capacity(v.len());
 

@@ -140,25 +140,25 @@ impl PyDataFrame {
         let mmap_bytes_r = get_mmap_bytes_reader(&py_f)?;
 
         py.enter_polars_df(move || {
-            let mut builder = JsonReader::new(mmap_bytes_r)
+            let mut reader = JsonReader::new(mmap_bytes_r)
                 .with_json_format(JsonFormat::Json)
                 .infer_schema_len(infer_schema_length.and_then(NonZeroUsize::new));
 
             if let Some(schema) = schema {
-                builder = builder.with_schema(Arc::new(schema.0));
+                reader = reader.with_schema(Arc::new(schema.0));
             }
 
             if let Some(schema) = schema_overrides.as_ref() {
-                builder = builder.with_schema_overwrite(&schema.0);
+                reader = reader.with_schema_overwrite(&schema.0);
             }
 
-            let sub_json_path_vec: SmallVec<[&str; 8]>;
+            let sub_json_path_vec;
             if let Some(sub_json_path) = sub_json_path {
                 sub_json_path_vec = sub_json_path.split('/').collect::<SmallVec<[&str; 8]>>();
-                builder = builder.with_sub_json_path(&sub_json_path_vec);
+                reader = reader.with_sub_json_path(&sub_json_path_vec);
             }
 
-            builder.finish()
+            reader.finish()
         })
     }
 

@@ -1,4 +1,3 @@
-use itertools::assert_equal;
 use polars::prelude::*;
 
 #[test]
@@ -59,7 +58,7 @@ fn test_full_outer_join_with_column_2988() -> PolarsResult<()> {
         )
         .with_columns([col("key1")])
         .collect()?;
-    assert_equal(out.get_column_names(), &["key1", "key2", "val1", "val2"]);
+    itertools::assert_equal(out.get_column_names(), &["key1", "key2", "val1", "val2"]);
     assert_eq!(
         Vec::from(out.column("key1")?.str()?),
         &[Some("bar"), Some("baz"), Some("foo")]
@@ -154,12 +153,18 @@ fn test_unnest_pushdown() -> PolarsResult<()> {
 
     let out = df
         .lazy()
-        .explode(by_name(["users"], true))
-        .unnest(by_name(["users"], true), None)
+        .explode(
+            by_name(["users"], true, false),
+            ExplodeOptions {
+                empty_as_null: true,
+                keep_nulls: true,
+            },
+        )
+        .unnest(by_name(["users"], true, false), None)
         .select([col("email")])
         .collect()?;
 
-    assert_equal(out.get_column_names(), &["email"]);
+    itertools::assert_equal(out.get_column_names(), &["email"]);
 
     Ok(())
 }
@@ -184,6 +189,6 @@ fn test_join_duplicate_7314() -> PolarsResult<()> {
         .select([col("a"), col("c") * col("d")])
         .collect()?;
 
-    assert_equal(out.get_column_names(), &["a", "c"]);
+    itertools::assert_equal(out.get_column_names(), &["a", "c"]);
     Ok(())
 }

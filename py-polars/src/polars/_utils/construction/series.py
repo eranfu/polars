@@ -8,7 +8,6 @@ from itertools import islice
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
 )
 
 import polars._reexport as pl
@@ -35,6 +34,7 @@ from polars._utils.various import (
 from polars._utils.wrap import wrap_s
 from polars.datatypes import (
     Array,
+    BaseExtension,
     Boolean,
     Categorical,
     Date,
@@ -66,7 +66,7 @@ with contextlib.suppress(ImportError):  # Module not available when building doc
     from polars._plr import PySeries
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
     from polars import DataFrame, Series
     from polars._dependencies import pandas as pd
@@ -83,6 +83,13 @@ def sequence_to_pyseries(
 ) -> PySeries:
     """Construct a PySeries from a sequence."""
     python_dtype: type | None = None
+
+    if isinstance(dtype, BaseExtension):
+        storage = dtype.ext_storage()
+        pys = sequence_to_pyseries(
+            name, values, storage, strict=strict, nan_to_null=nan_to_null
+        )
+        return pys.ext_to(dtype)
 
     if isinstance(values, range):
         return range_to_series(name, values, dtype=dtype)._s
@@ -241,10 +248,12 @@ def sequence_to_pyseries(
         time_unit = getattr(dtype, "time_unit", None)
         time_zone = getattr(dtype, "time_zone", None)
 
-        if time_unit is None or values_dtype == Date:
-            s = wrap_s(py_series)
-        else:
+        if dtype.is_temporal() and values_dtype == String and dtype != Duration:
+            s = wrap_s(py_series).str.strptime(dtype, strict=strict)  # type: ignore[arg-type]
+        elif time_unit is not None and values_dtype != Date:
             s = wrap_s(py_series).dt.cast_time_unit(time_unit)
+        else:
+            s = wrap_s(py_series)
 
         if (values_dtype == Date) & (dtype == Datetime):
             s = s.cast(Datetime(time_unit or "us"))
@@ -500,7 +509,9 @@ def numpy_to_pyseries(
         values, dtype = numpy_values_and_dtype(values)
         constructor = numpy_type_to_constructor(values, dtype)
         return constructor(
-            name, values, nan_to_null if dtype in (np.float32, np.float64) else strict
+            name,
+            values,
+            nan_to_null if dtype in (np.float16, np.float32, np.float64) else strict,
         )
     else:
         original_shape = values.shape

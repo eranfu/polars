@@ -5,7 +5,7 @@ pub use serde_wrap::{
     TrySerializeToBytes,
 };
 
-/// Wrapper around Py<PyAny> from pyo3 with additional trait impls.
+/// Wrapper around PyObject from pyo3 with additional trait impls.
 #[derive(Debug)]
 pub struct PythonObject(pub Py<PyAny>);
 // Note: We have this because the struct itself used to be called `PythonFunction`, so it's
@@ -75,15 +75,15 @@ impl PartialEq for PythonObject {
 
 #[cfg(feature = "dsl-schema")]
 impl schemars::JsonSchema for PythonObject {
-    fn schema_name() -> String {
-        "PythonObject".to_owned()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PythonObject".into()
     }
 
     fn schema_id() -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(concat!(module_path!(), "::", "PythonObject"))
     }
 
-    fn json_schema(generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         Vec::<u8>::json_schema(generator)
     }
 }

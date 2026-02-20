@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use itertools::assert_equal;
-
 use super::*;
 
 fn cached_before_root(q: LazyFrame) {
@@ -79,7 +77,7 @@ fn test_cse_unions() -> PolarsResult<()> {
     }));
     assert_eq!(cache_count, 2);
     let out = lf.collect()?;
-    assert_equal(out.get_column_names(), &["category", "fats_g"]);
+    itertools::assert_equal(out.get_column_names(), &["category", "fats_g"]);
 
     Ok(())
 }
@@ -213,7 +211,7 @@ fn test_cse_joins_4954() -> PolarsResult<()> {
             use IR::*;
             match lp {
                 Cache { id, input, .. } => {
-                    assert!(matches!(lp_arena.get(*input), IR::SimpleProjection { .. }));
+                    assert!(matches!(lp_arena.get(*input), IR::DataFrameScan { .. }));
 
                     Some(*id)
                 },
@@ -310,7 +308,7 @@ fn test_cse_columns_projections() -> PolarsResult<()> {
 
     let out = q.collect()?;
 
-    assert_equal(out.get_column_names(), &["C", "A", "D"]);
+    itertools::assert_equal(out.get_column_names(), &["C", "A", "D"]);
 
     Ok(())
 }
