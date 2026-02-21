@@ -439,14 +439,14 @@ pub fn lower_ir(
             slice,
             sort_options,
         } => {
-            let slice = *slice;
+            let slice = slice.clone();
             let mut by_column = by_column.clone();
             let mut sort_options = sort_options.clone();
             let phys_input = lower_ir!(*input)?;
 
             // See if we can insert a top k.
             let mut limit = u64::MAX;
-            if let Some((0, l)) = slice {
+            if let Some((0, l, _)) = slice {
                 limit = limit.min(l as u64);
             }
             #[allow(clippy::unnecessary_cast)]
@@ -503,6 +503,7 @@ pub fn lower_ir(
                         by_column: trans_by_column,
                         reverse: sort_options.descending.iter().map(|x| !x).collect(),
                         nulls_last: sort_options.nulls_last.clone(),
+                        dyn_pred: slice.as_ref().and_then(|t| t.2.clone()),
                     },
                 }));
             }
@@ -512,7 +513,7 @@ pub fn lower_ir(
                 kind: PhysNodeKind::Sort {
                     input: stream,
                     by_column,
-                    slice,
+                    slice: slice.as_ref().map(|t| (t.0, t.1)),
                     sort_options,
                 },
             }));
@@ -667,8 +668,16 @@ pub fn lower_ir(
                     FileScanIR::Csv { options } => Arc::new(Arc::clone(options)) as _,
 
                     #[cfg(feature = "json")]
-                    FileScanIR::NDJson { options } => Arc::new(options.clone()) as _,
-
+                    FileScanIR::NDJson { options } => Arc::new(
+                        crate::nodes::io_sources::ndjson::builder::NDJsonReaderBuilder {
+                            options: Arc::new(options.clone()),
+                            prefetch_limit: RelaxedCell::new_usize(0),
+                            prefetch_semaphore: std::sync::OnceLock::new(),
+                            shared_prefetch_wait_group_slot: Default::default(),
+                            io_metrics: std::sync::OnceLock::new(),
+                        },
+                    ) as _,
+                    // Arc::new(options.clone()) as _,
                     #[cfg(feature = "python")]
                     FileScanIR::PythonDataset {
                         dataset_object: _,
@@ -688,7 +697,12 @@ pub fn lower_ir(
 
                     #[cfg(feature = "scan_lines")]
                     FileScanIR::Lines { name: _ } => {
-                        Arc::new(crate::nodes::io_sources::lines::LineReaderBuilder {}) as _
+                        Arc::new(crate::nodes::io_sources::lines::LineReaderBuilder {
+                            prefetch_limit: RelaxedCell::new_usize(0),
+                            prefetch_semaphore: std::sync::OnceLock::new(),
+                            shared_prefetch_wait_group_slot: Default::default(),
+                            io_metrics: std::sync::OnceLock::new(),
+                        }) as _
                     },
 
                     FileScanIR::Anonymous { .. } => todo!("unimplemented: AnonymousScan"),

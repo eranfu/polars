@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use polars_core::frame::row::Row;
 use polars_core::prelude::*;
 use polars_lazy::prelude::*;
-use polars_ops::frame::JoinCoalesce;
+use polars_ops::frame::{JoinCoalesce, MaintainOrderJoin};
 use polars_plan::dsl::function_expr::StructFunction;
 use polars_plan::prelude::*;
 use polars_utils::aliases::{PlHashSet, PlIndexSet};
@@ -13,7 +13,7 @@ use sqlparser::ast::{
     BinaryOperator, CreateTable, CreateTableLikeKind, Delete, Distinct, ExcludeSelectItem,
     Expr as SQLExpr, Fetch, FromTable, FunctionArg, GroupByExpr, Ident, JoinConstraint,
     JoinOperator, LimitClause, NamedWindowDefinition, NamedWindowExpr, ObjectName, ObjectType,
-    OrderBy, OrderByKind, Query, RenameSelectItem, Select, SelectItem,
+    OrderBy, OrderByKind, Query, RenameSelectItem, Select, SelectFlavor, SelectItem,
     SelectItemQualifiedWildcardKind, SetExpr, SetOperator, SetQuantifier, Statement, TableAlias,
     TableFactor, TableWithJoins, Truncate, UnaryOperator, Value as SQLValue, ValueWithSpan, Values,
     Visit, WildcardAdditionalOptions, WindowSpec,
@@ -756,22 +756,24 @@ impl SQLContext {
             delete_token: _,
         }) = stmt
         {
-            if !tables.is_empty()
-                || using.is_some()
-                || returning.is_some()
-                || limit.is_some()
-                || !order_by.is_empty()
-            {
-                let error_message = match () {
-                    _ if !tables.is_empty() => "DELETE expects exactly one table name",
-                    _ if using.is_some() => "DELETE does not support the USING clause",
-                    _ if returning.is_some() => "DELETE does not support the RETURNING clause",
-                    _ if limit.is_some() => "DELETE does not support the LIMIT clause",
-                    _ if !order_by.is_empty() => "DELETE does not support the ORDER BY clause",
-                    _ => unreachable!(),
-                };
-                polars_bail!(SQLInterface: error_message);
+            let error_message: Option<&'static str> = if !tables.is_empty() {
+                Some("DELETE expects exactly one table name")
+            } else if using.is_some() {
+                Some("DELETE does not support the USING clause")
+            } else if returning.is_some() {
+                Some("DELETE does not support the RETURNING clause")
+            } else if limit.is_some() {
+                Some("DELETE does not support the LIMIT clause")
+            } else if !order_by.is_empty() {
+                Some("DELETE does not support the ORDER BY clause")
+            } else {
+                None
+            };
+
+            if let Some(msg) = error_message {
+                polars_bail!(SQLInterface: msg);
             }
+
             let from_tables = match &from {
                 FromTable::WithFromKeyword(from) => from,
                 FromTable::WithoutKeyword(from) => from,
@@ -1369,7 +1371,7 @@ impl SQLContext {
                                 slice: None,
                                 nulls_equal: false,
                                 coalesce: Default::default(),
-                                maintain_order: polars_ops::frame::MaintainOrderJoin::Left,
+                                maintain_order: MaintainOrderJoin::Left,
                                 build_side: None,
                             },
                         );
@@ -1463,6 +1465,12 @@ impl SQLContext {
         schema: &SchemaRef,
         select_modifiers: &mut SelectModifiers,
     ) -> PolarsResult<Vec<Expr>> {
+        if select_stmt.projection.is_empty()
+            && select_stmt.flavor == SelectFlavor::FromFirstNoSelect
+        {
+            // eg: bare "FROM tbl" is equivalent to "SELECT * FROM tbl".
+            return Ok(schema.iter_names().map(|name| col(name.clone())).collect());
+        }
         let mut items: Vec<ProjectionItem> = Vec::with_capacity(select_stmt.projection.len());
         let mut has_qualified_wildcard = false;
 
@@ -1503,11 +1511,7 @@ impl SQLContext {
                     },
                 },
                 SelectItem::Wildcard(wildcard_options) => {
-                    let cols = schema
-                        .iter_names()
-                        .map(|name| col(name.clone()))
-                        .collect::<Vec<_>>();
-
+                    let cols = schema.iter_names().map(|name| col(name.clone())).collect();
                     items.push(ProjectionItem::Exprs(
                         self.process_wildcard_additional_options(
                             cols,

@@ -134,7 +134,7 @@ fn collect_lambda_ret_with_rows_output<'py>(
         Ok(if retval.is_none() {
             Either::Left(std::iter::repeat_n(AnyValue::Null, width))
         } else {
-            let tuple = retval.cast::<PyTuple>().map_err(|_| polars_err!(ComputeError: format!("expected tuple, got {}", retval.get_type().qualname().unwrap())))?;
+            let tuple = retval.cast::<PyTuple>().map_err(|_| polars_err!(ComputeError: "expected tuple, got {}", retval.get_type().qualname().unwrap()))?;
             Either::Right(tuple.into_iter().map(|v| v.extract::<Wrap<AnyValue>>().unwrap().0))
         })
     });

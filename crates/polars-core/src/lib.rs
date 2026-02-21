@@ -1,5 +1,3 @@
-#![feature(impl_trait_in_bindings)]
-
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(feature = "simd", feature(portable_simd))]
 #![allow(ambiguous_glob_reexports)]
