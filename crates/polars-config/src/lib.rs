@@ -3,9 +3,13 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 
 mod engine;
 mod parse;
+mod spill_format;
+mod spill_policy;
 
 pub use engine::Engine;
 use polars_error::polars_warn;
+pub use spill_format::SpillFormat;
+pub use spill_policy::SpillPolicy;
 
 // Public.
 const VERBOSE: &str = "POLARS_VERBOSE";
@@ -25,6 +29,10 @@ const DEFAULT_IDEAL_MORSEL_SIZE: u64 = 100_000;
 const ENGINE_AFFINITY: &str = "POLARS_ENGINE_AFFINITY";
 const DEFAULT_ENGINE_AFFINITY: Engine = Engine::Auto;
 
+const PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH: &str =
+    "POLARS_PARQUET_BINARY_STATISTICS_TRUNCATE_LEN";
+const DEFAULT_PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH: u64 = 64;
+
 // Private.
 const VERBOSE_SENSITIVE: &str = "POLARS_VERBOSE_SENSITIVE";
 const DEFAULT_VERBOSE_SENSITIVE: bool = false;
@@ -35,6 +43,15 @@ const DEFAULT_FORCE_ASYNC: bool = false;
 const IMPORT_INTERVAL_AS_STRUCT: &str = "POLARS_IMPORT_INTERVAL_AS_STRUCT";
 const DEFAULT_IMPORT_INTERVAL_AS_STRUCT: bool = false;
 
+const OOC_DRIFT_THRESHOLD: &str = "POLARS_OOC_DRIFT_THRESHOLD";
+const DEFAULT_OOC_DRIFT_THRESHOLD: u64 = 64 * 1024 * 1024;
+
+const OOC_SPILL_POLICY: &str = "POLARS_OOC_SPILL_POLICY";
+const DEFAULT_OOC_SPILL_POLICY: SpillPolicy = SpillPolicy::NoSpill;
+
+const OOC_SPILL_FORMAT: &str = "POLARS_OOC_SPILL_FORMAT";
+const DEFAULT_OOC_SPILL_FORMAT: SpillFormat = SpillFormat::Ipc;
+
 static KNOWN_OPTIONS: &[&str] = &[
     // Public.
     VERBOSE,
@@ -43,6 +60,7 @@ static KNOWN_OPTIONS: &[&str] = &[
     IDEAL_MORSEL_SIZE,
     STREAMING_CHUNK_SIZE,
     ENGINE_AFFINITY,
+    PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH,
     /*
     Not yet supported public options:
 
@@ -69,6 +87,9 @@ static KNOWN_OPTIONS: &[&str] = &[
     VERBOSE_SENSITIVE,
     FORCE_ASYNC,
     IMPORT_INTERVAL_AS_STRUCT,
+    OOC_DRIFT_THRESHOLD,
+    OOC_SPILL_POLICY,
+    OOC_SPILL_FORMAT,
 ];
 
 pub struct Config {
@@ -78,11 +99,15 @@ pub struct Config {
     warn_unstable: AtomicBool,
     ideal_morsel_size: AtomicU64,
     engine_affinity: AtomicU8,
+    parquet_binary_statistics_truncate_length: AtomicU64,
 
     // Private.
     verbose_sensitive: AtomicBool,
     force_async: AtomicBool,
     import_interval_as_struct: AtomicBool,
+    ooc_drift_threshold: AtomicU64,
+    ooc_spill_policy: AtomicU8,
+    ooc_spill_format: AtomicU8,
 }
 
 impl Config {
@@ -94,11 +119,17 @@ impl Config {
             warn_unstable: AtomicBool::new(DEFAULT_WARN_UNSTABLE),
             ideal_morsel_size: AtomicU64::new(DEFAULT_IDEAL_MORSEL_SIZE),
             engine_affinity: AtomicU8::new(DEFAULT_ENGINE_AFFINITY as u8),
+            parquet_binary_statistics_truncate_length: AtomicU64::new(
+                DEFAULT_PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH,
+            ),
 
             // Private.
             verbose_sensitive: AtomicBool::new(DEFAULT_VERBOSE_SENSITIVE),
             force_async: AtomicBool::new(DEFAULT_FORCE_ASYNC),
             import_interval_as_struct: AtomicBool::new(DEFAULT_IMPORT_INTERVAL_AS_STRUCT),
+            ooc_drift_threshold: AtomicU64::new(DEFAULT_OOC_DRIFT_THRESHOLD),
+            ooc_spill_policy: AtomicU8::new(DEFAULT_OOC_SPILL_POLICY as u8),
+            ooc_spill_format: AtomicU8::new(DEFAULT_OOC_SPILL_FORMAT as u8),
         };
         cfg.reload_env_vars();
         cfg
@@ -147,6 +178,13 @@ impl Config {
                     .unwrap_or(DEFAULT_ENGINE_AFFINITY) as u8,
                 Ordering::Relaxed,
             ),
+            PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH => {
+                self.parquet_binary_statistics_truncate_length.store(
+                    val.and_then(|x| parse::parse_u64(var, x))
+                        .unwrap_or(DEFAULT_PARQUET_BINARY_STATISTICS_TRUNCATE_LENGTH),
+                    Ordering::Relaxed,
+                )
+            },
 
             // Private flags.
             VERBOSE_SENSITIVE => self.verbose_sensitive.store(
@@ -162,6 +200,21 @@ impl Config {
             IMPORT_INTERVAL_AS_STRUCT => self.import_interval_as_struct.store(
                 val.and_then(|x| parse::parse_bool(var, x))
                     .unwrap_or(DEFAULT_IMPORT_INTERVAL_AS_STRUCT),
+                Ordering::Relaxed,
+            ),
+            OOC_DRIFT_THRESHOLD => self.ooc_drift_threshold.store(
+                val.and_then(|x| parse::parse_u64(var, x))
+                    .unwrap_or(DEFAULT_OOC_DRIFT_THRESHOLD),
+                Ordering::Relaxed,
+            ),
+            OOC_SPILL_POLICY => self.ooc_spill_policy.store(
+                val.and_then(|x| parse::parse_spill_policy(var, x))
+                    .unwrap_or(DEFAULT_OOC_SPILL_POLICY) as u8,
+                Ordering::Relaxed,
+            ),
+            OOC_SPILL_FORMAT => self.ooc_spill_format.store(
+                val.and_then(|x| parse::parse_spill_format(var, x))
+                    .unwrap_or(DEFAULT_OOC_SPILL_FORMAT) as u8,
                 Ordering::Relaxed,
             ),
 
@@ -197,6 +250,12 @@ impl Config {
         Engine::from_discriminant(self.engine_affinity.load(Ordering::Relaxed))
     }
 
+    /// Target byte length to truncate statistics to for binary/string columns in parquet.
+    pub fn parquet_binary_statistics_truncate_length(&self) -> u64 {
+        self.parquet_binary_statistics_truncate_length
+            .load(Ordering::Relaxed)
+    }
+
     /// Whether we should do verbose printing on sensitive information.
     pub fn verbose_sensitive(&self) -> bool {
         self.verbose_sensitive.load(Ordering::Relaxed)
@@ -208,6 +267,18 @@ impl Config {
 
     pub fn import_interval_as_struct(&self) -> bool {
         self.import_interval_as_struct.load(Ordering::Relaxed)
+    }
+
+    pub fn ooc_drift_threshold(&self) -> u64 {
+        self.ooc_drift_threshold.load(Ordering::Relaxed)
+    }
+
+    pub fn ooc_spill_policy(&self) -> SpillPolicy {
+        SpillPolicy::from_discriminant(self.ooc_spill_policy.load(Ordering::Relaxed))
+    }
+
+    pub fn ooc_spill_format(&self) -> SpillFormat {
+        SpillFormat::from_discriminant(self.ooc_spill_format.load(Ordering::Relaxed))
     }
 }
 

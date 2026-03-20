@@ -69,8 +69,11 @@ def test_implode() -> None:
 
 def test_lazyframe_membership_operator() -> None:
     ldf = pl.LazyFrame({"name": ["Jane", "John"], "age": [20, 30]})
-    assert "name" in ldf
-    assert "phone" not in ldf
+
+    with pytest.raises(PerformanceWarning):
+        assert "name" in ldf
+
+    assert "phone" not in ldf.collect_schema()
 
     # note: cannot use lazyframe in boolean context
     with pytest.raises(TypeError, match="ambiguous"):
@@ -579,6 +582,30 @@ def test_round(n: float, ndigits: int, expected: float, dtype: pl.DataType) -> N
     ldf = pl.LazyFrame({"value": [n]}, schema_overrides={"value": dtype})
     assert_series_equal(
         ldf.select(pl.col("value").round(decimals=ndigits)).collect().to_series(),
+        pl.Series("value", [expected], dtype=dtype),
+    )
+
+
+@pytest.mark.parametrize(
+    ("n", "ndigits", "expected"),
+    [
+        (1.005, 2, 1.0),
+        (1835.665, 2, 1835.66),
+        (-1835.665, 2, -1835.66),
+        (2.49, 0, 2.0),
+        (123.45678, 2, 123.45),
+        (1254, 2, 1254.0),
+        (1254, 0, 1254.0),
+        (123.55, 0, 123.0),
+        (123.55, 1, 123.5),
+        (1.0e20, 2, 100000000000000000000.0),
+    ],
+)
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_truncate(n: float, ndigits: int, expected: float, dtype: pl.DataType) -> None:
+    ldf = pl.LazyFrame({"value": [n]}, schema_overrides={"value": dtype})
+    assert_series_equal(
+        ldf.select(pl.col("value").truncate(decimals=ndigits)).collect().to_series(),
         pl.Series("value", [expected], dtype=dtype),
     )
 
@@ -1481,6 +1508,8 @@ def test_lf_properties() -> None:
         assert lf.dtypes == [pl.Int64, pl.Float64, pl.String]
     with pytest.warns(PerformanceWarning):
         assert lf.width == 3
+    with pytest.warns(PerformanceWarning):
+        assert "foo" in lf
 
 
 def test_lf_unnest() -> None:
@@ -1619,7 +1648,7 @@ def test_join_where() -> None:
         }
     )
 
-    assert_frame_equal(out, expected)
+    assert_frame_equal(out, expected, check_row_order=False)
 
 
 def test_join_where_bad_input_type() -> None:

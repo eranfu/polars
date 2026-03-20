@@ -50,6 +50,7 @@ rayon = { workspace = true }
 recursive = { workspace = true }
 serde_json = { workspace = true, optional = true }
 smallvec = { workspace = true }
+uuid = { workspace = true }
 
 [target.'cfg(any(not(target_family = "unix"), target_os = "emscripten"))'.dependencies]
 mimalloc = { version = "0.1", default-features = false }

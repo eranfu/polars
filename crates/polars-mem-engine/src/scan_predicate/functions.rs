@@ -41,7 +41,7 @@ pub fn create_scan_predicate(
     let mut hive_predicate = None;
     let mut hive_predicate_is_full_predicate = false;
 
-    #[expect(clippy::never_loop)]
+    #[allow(clippy::never_loop, clippy::while_let_loop)]
     loop {
         let Some(hive_schema) = hive_schema else {
             break;
@@ -214,7 +214,7 @@ pub fn initialize_scan_predicate<'a>(
     table_statistics: Option<&TableStatistics>,
     verbose: bool,
 ) -> PolarsResult<(Option<SkipFilesMask>, Option<&'a ScanIOPredicate>)> {
-    #[expect(clippy::never_loop)]
+    #[allow(clippy::never_loop, clippy::while_let_loop)]
     loop {
         let Some(predicate) = predicate else {
             break;
@@ -445,8 +445,8 @@ where
         missing_columns_policy: _,
         extra_columns_policy: _,
         include_file_paths: _,
-        table_statistics,
         deletion_files,
+        table_statistics,
         row_count,
     } = unified_scan_args.as_mut()
     else {
@@ -488,6 +488,7 @@ where
 
             #[cfg(feature = "scan_lines")]
             FileScanIR::Lines { name: _ } => {},
+            FileScanIR::ExpandedPaths { name: _ } => {},
 
             FileScanIR::Anonymous {
                 options: _,
@@ -503,7 +504,7 @@ where
             .collect::<Vec<_>>()
     });
 
-    *deletion_files = deletion_files.as_ref().and_then(|x| match x {
+    *deletion_files = deletion_files.take().and_then(|x| match x {
         DeletionFilesList::IcebergPositionDelete(deletions) => {
             let mut out = None;
 
@@ -518,6 +519,9 @@ where
 
             out.map(|x| DeletionFilesList::IcebergPositionDelete(Arc::new(x)))
         },
+        // No-op - Delta takes scan paths at the execution stage.
+        #[cfg(feature = "python")]
+        DeletionFilesList::Delta(provider) => Some(DeletionFilesList::Delta(provider)),
     });
 
     *table_statistics = table_statistics.as_ref().map(|x| {

@@ -1,3 +1,4 @@
+pub mod backward_fill;
 pub mod callback_sink;
 #[cfg(feature = "cum_agg")]
 pub mod cum_agg;
@@ -7,6 +8,7 @@ pub mod dynamic_slice;
 #[cfg(feature = "ewma")]
 pub mod ewm;
 pub mod filter;
+pub mod forward_fill;
 pub mod gather_every;
 pub mod group_by;
 pub mod in_memory_map;
@@ -44,6 +46,7 @@ mod compute_node_prelude {
     pub use polars_core::frame::DataFrame;
     pub use polars_error::PolarsResult;
     pub use polars_expr::state::ExecutionState;
+    pub use polars_ooc::Token;
 
     pub use super::ComputeNode;
     pub use crate::async_executor::{JoinHandle, TaskPriority, TaskScope};

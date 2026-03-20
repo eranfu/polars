@@ -9,7 +9,6 @@ use polars_core::utils::{_split_offsets, NoNull};
 use polars_ops::prelude::ArgAgg;
 #[cfg(feature = "propagate_nans")]
 use polars_ops::prelude::nan_propagating_aggregate;
-use polars_utils::itertools::Itertools;
 use rayon::prelude::*;
 
 use super::*;
@@ -48,7 +47,7 @@ impl PhysicalExpr for AggregationExpr {
         None
     }
 
-    fn evaluate(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
+    fn evaluate_impl(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
         let s = self.input.evaluate(df, state)?;
 
         let AggregationType {
@@ -155,7 +154,7 @@ impl PhysicalExpr for AggregationExpr {
 
                 Ok(IdxCa::from_slice(s.name().clone(), &[count as IdxSize]).into_column())
             },
-            GroupByMethod::Implode => s.implode().map(|ca| ca.into_column()),
+            GroupByMethod::Implode { maintain_order: _ } => s.implode().map(|ca| ca.into_column()),
             GroupByMethod::Std(ddof) => s
                 .std_reduce(ddof)
                 .map(|sc| sc.into_column(s.name().clone())),
@@ -193,7 +192,7 @@ impl PhysicalExpr for AggregationExpr {
     }
 
     #[allow(clippy::ptr_arg)]
-    fn evaluate_on_groups<'a>(
+    fn evaluate_on_groups_impl<'a>(
         &self,
         df: &DataFrame,
         groups: &'a GroupPositions,
@@ -414,11 +413,13 @@ impl PhysicalExpr for AggregationExpr {
                     let agg_s = s.agg_n_unique(&groups);
                     AggregatedScalar(agg_s.with_name(keep_name))
                 },
-                GroupByMethod::Implode => AggregatedScalar(match ac.agg_state() {
-                    AggState::LiteralScalar(_) => unreachable!(), // handled above
-                    AggState::AggregatedScalar(c) => c.as_list().into_column(),
-                    AggState::NotAggregated(_) | AggState::AggregatedList(_) => ac.aggregated(),
-                }),
+                GroupByMethod::Implode { maintain_order: _ } => {
+                    AggregatedScalar(match ac.agg_state() {
+                        AggState::LiteralScalar(_) => unreachable!(), // handled above
+                        AggState::AggregatedScalar(c) => c.as_list().into_column(),
+                        AggState::NotAggregated(_) | AggState::AggregatedList(_) => ac.aggregated(),
+                    })
+                },
                 GroupByMethod::Groups => {
                     let mut column: ListChunked = ac.groups().as_list_chunked();
                     column.rename(keep_name);
@@ -521,7 +522,7 @@ impl PhysicalExpr for AggQuantileExpr {
         None
     }
 
-    fn evaluate(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
+    fn evaluate_impl(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
         let input = self.input.evaluate(df, state)?;
 
         let quantile = self.quantile.evaluate(df, state)?;
@@ -561,7 +562,7 @@ impl PhysicalExpr for AggQuantileExpr {
     }
 
     #[allow(clippy::ptr_arg)]
-    fn evaluate_on_groups<'a>(
+    fn evaluate_on_groups_impl<'a>(
         &self,
         df: &DataFrame,
         groups: &'a GroupPositions,
@@ -577,8 +578,16 @@ impl PhysicalExpr for AggQuantileExpr {
         let keep_name = ac.get_values().name().clone();
 
         let quantile_column = self.quantile.evaluate(df, state)?;
-        polars_ensure!(quantile_column.len() <= 1, ComputeError:
-            "polars only supports computing a single quantile in a groupby aggregation context"
+        polars_ensure!(
+            quantile_column.len() <= 1,
+            ComputeError:
+                "polars only supports computing a single quantile in a groupby aggregation context"
+        );
+        polars_ensure!(
+            quantile_column.dtype().is_numeric(),
+            SchemaMismatch:
+                "expected expression of dtype 'numeric' for quantile, got '{}'",
+            quantile_column.dtype()
         );
         let quantile: f64 = quantile_column.get(0).unwrap().try_extract()?;
 
@@ -661,7 +670,7 @@ impl PhysicalExpr for AggMinMaxByExpr {
         None
     }
 
-    fn evaluate(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
+    fn evaluate_impl(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
         let input = self.input.evaluate(df, state)?;
         let by = self.by.evaluate(df, state)?;
         let name = if self.is_max_by { "max_by" } else { "min_by" };
@@ -685,7 +694,7 @@ impl PhysicalExpr for AggMinMaxByExpr {
     }
 
     #[allow(clippy::ptr_arg)]
-    fn evaluate_on_groups<'a>(
+    fn evaluate_on_groups_impl<'a>(
         &self,
         df: &DataFrame,
         groups: &'a GroupPositions,
@@ -710,21 +719,23 @@ impl PhysicalExpr for AggMinMaxByExpr {
             unsafe { by_col.agg_arg_min(&by_groups) }
         };
         let idxs_in_groups: &IdxCa = idxs_in_groups.as_materialized_series().as_ref().as_ref();
-        let flat_gather_idxs = match input_groups.as_ref().as_ref() {
+        let gather_idxs: IdxCa = match input_groups.as_ref().as_ref() {
             GroupsType::Idx(g) => idxs_in_groups
-                .into_no_null_iter()
+                .iter()
                 .enumerate()
-                .map(|(group_idx, idx_in_group)| g.all()[group_idx][idx_in_group as usize])
-                .collect_vec(),
+                .map(|(group_idx, idx_in_group)| {
+                    idx_in_group.map(|i| g.all()[group_idx][i as usize])
+                })
+                .collect(),
             GroupsType::Slice { groups, .. } => idxs_in_groups
-                .into_no_null_iter()
+                .iter()
                 .enumerate()
-                .map(|(group_idx, idx_in_group)| groups[group_idx][0] + idx_in_group)
-                .collect_vec(),
+                .map(|(group_idx, idx_in_group)| idx_in_group.map(|i| groups[group_idx][0] + i))
+                .collect(),
         };
 
-        // SAFETY: All indices are within input_col's groups.
-        let gathered = unsafe { input_col.take_slice_unchecked(&flat_gather_idxs) };
+        // SAFETY: All non-null indices are within input_col's groups.
+        let gathered = unsafe { input_col.take_unchecked(&gather_idxs) };
         let agg_state = AggregatedScalar(gathered.with_name(keep_name));
         Ok(AggregationContext::from_agg_state(
             agg_state,
@@ -766,7 +777,7 @@ impl PhysicalExpr for AnonymousAggregationExpr {
         None
     }
 
-    fn evaluate(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
+    fn evaluate_impl(&self, df: &DataFrame, state: &ExecutionState) -> PolarsResult<Column> {
         polars_ensure!(
             self.inputs.len() == 1,
             ComputeError: "AnonymousAggregationExpr with more than one input is not supported"
@@ -781,7 +792,7 @@ impl PhysicalExpr for AnonymousAggregationExpr {
     }
 
     #[allow(clippy::ptr_arg)]
-    fn evaluate_on_groups<'a>(
+    fn evaluate_on_groups_impl<'a>(
         &self,
         df: &DataFrame,
         groups: &'a GroupPositions,

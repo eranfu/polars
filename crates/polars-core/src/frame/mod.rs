@@ -36,8 +36,6 @@ mod from;
 #[cfg(feature = "algorithm_group_by")]
 pub mod group_by;
 pub(crate) mod horizontal;
-#[cfg(feature = "proptest")]
-pub mod proptest;
 #[cfg(any(feature = "rows", feature = "object"))]
 pub mod row;
 mod top_k;
@@ -72,6 +70,20 @@ pub enum UniqueKeepStrategy {
     /// This allows more optimizations
     #[default]
     Any,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Hash, IntoStaticStr)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "dsl-schema", derive(schemars::JsonSchema))]
+#[strum(serialize_all = "snake_case")]
+/// Naming strategy for the results of a pivot.
+pub enum PivotColumnNaming {
+    /// Always combine the values and on-column names.
+    Combine,
+    /// Prefix the values column name only if there is more than one values
+    /// column.
+    #[default]
+    Auto,
 }
 
 impl DataFrame {
@@ -1193,6 +1205,12 @@ impl DataFrame {
     pub fn filter(&self, mask: &BooleanChunked) -> PolarsResult<Self> {
         if self.width() == 0 {
             filter_zero_width(self.height(), mask)
+        } else if mask.len() == 1 && self.len() >= 1 {
+            if mask.all() && mask.null_count() == 0 {
+                Ok(self.clone())
+            } else {
+                Ok(self.clear())
+            }
         } else {
             let new_columns: Vec<Column> = self.try_apply_columns_par(|s| s.filter(mask))?;
             let out = unsafe {
@@ -1207,6 +1225,12 @@ impl DataFrame {
     pub fn filter_seq(&self, mask: &BooleanChunked) -> PolarsResult<Self> {
         if self.width() == 0 {
             filter_zero_width(self.height(), mask)
+        } else if mask.len() == 1 && mask.null_count() == 0 && self.len() >= 1 {
+            if mask.all() && mask.null_count() == 0 {
+                Ok(self.clone())
+            } else {
+                Ok(self.clear())
+            }
         } else {
             let new_columns: Vec<Column> = self.try_apply_columns(|s| s.filter(mask))?;
             let out = unsafe {
@@ -2679,7 +2703,7 @@ impl DataFrame {
             }
         }
 
-        DataFrame::new_infer_height(new_cols)
+        DataFrame::new(self.height(), new_cols)
     }
 
     pub fn append_record_batch(&mut self, rb: RecordBatchT<ArrayRef>) -> PolarsResult<()> {

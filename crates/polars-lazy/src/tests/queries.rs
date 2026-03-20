@@ -1517,7 +1517,7 @@ fn test_list_in_select_context() -> PolarsResult<()> {
 
     let df = DataFrame::new_infer_height(vec![s])?;
 
-    let out = df.lazy().select([col("a").implode()]).collect()?;
+    let out = df.lazy().select([col("a").implode(true)]).collect()?;
 
     let s = out.column("a")?;
     assert!(s.equals(&expected));
@@ -1784,7 +1784,9 @@ fn test_is_in() -> PolarsResult<()> {
         .lazy()
         .group_by_stable([col("fruits")])
         .agg([col("cars").is_in(
-            col("cars").filter(col("cars").eq(lit("beetle"))).implode(),
+            col("cars")
+                .filter(col("cars").eq(lit("beetle")))
+                .implode(true),
             false,
         )])
         .collect()?;
@@ -1804,7 +1806,7 @@ fn test_is_in() -> PolarsResult<()> {
         .lazy()
         .group_by_stable([col("fruits")])
         .agg([col("cars").is_in(
-            lit(Series::new("a".into(), ["beetle", "vw"])).implode(),
+            lit(Series::new("a".into(), ["beetle", "vw"])).implode(true),
             false,
         )])
         .collect()?;

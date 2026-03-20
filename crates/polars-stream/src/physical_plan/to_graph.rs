@@ -660,6 +660,28 @@ fn to_graph_rec<'a>(
             )
         },
 
+        ForwardFill { input, limit } => {
+            let input_key = to_graph_rec(input.node, ctx)?;
+            let input_schema = &ctx.phys_sm[input.node].output_schema;
+            assert_eq!(input_schema.len(), 1);
+            let (_, dtype) = input_schema.get_at_index(0).unwrap();
+            ctx.graph.add_node(
+                nodes::forward_fill::ForwardFillNode::new(*limit, dtype.clone()),
+                [(input_key, input.port)],
+            )
+        },
+
+        BackwardFill { input, limit } => {
+            let input_key = to_graph_rec(input.node, ctx)?;
+            let input_schema = &ctx.phys_sm[input.node].output_schema;
+            assert_eq!(input_schema.len(), 1);
+            let (name, dtype) = input_schema.get_at_index(0).unwrap();
+            ctx.graph.add_node(
+                nodes::backward_fill::BackwardFillNode::new(*limit, dtype.clone(), name.clone()),
+                [(input_key, input.port)],
+            )
+        },
+
         PeakMinMax { input, is_peak_max } => {
             let input_key = to_graph_rec(input.node, ctx)?;
             ctx.graph.add_node(
@@ -1205,6 +1227,43 @@ fn to_graph_rec<'a>(
             {
                 unreachable!("asof_join feature is disabled")
             }
+        },
+
+        #[cfg(feature = "iejoin")]
+        RangeJoin {
+            input_left,
+            input_right,
+            left_on,
+            right_on,
+            tmp_left_key_cols,
+            tmp_right_key_cols,
+            descending,
+            args,
+            options,
+        } => {
+            let args = args.clone();
+            let options = options.clone();
+            let left_input_key = to_graph_rec(input_left.node, ctx)?;
+            let right_input_key = to_graph_rec(input_right.node, ctx)?;
+            let left_input_schema = ctx.phys_sm[input_left.node].output_schema.clone();
+            let right_input_schema = ctx.phys_sm[input_right.node].output_schema.clone();
+            ctx.graph.add_node(
+                nodes::joins::range_join::RangeJoinNode::new(
+                    left_input_schema,
+                    right_input_schema,
+                    left_on.clone(),
+                    right_on.clone(),
+                    tmp_left_key_cols.clone(),
+                    tmp_right_key_cols.clone(),
+                    *descending,
+                    args,
+                    options,
+                ),
+                [
+                    (left_input_key, input_left.port),
+                    (right_input_key, input_right.port),
+                ],
+            )
         },
 
         #[cfg(feature = "merge_sorted")]
