@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use polars_core::schema::SchemaRef;
 use polars_error::PolarsResult;
 use polars_io::ndjson;
@@ -11,6 +13,7 @@ use crate::nodes::compute_node_prelude::*;
 pub enum ChunkReaderBuilder {
     NDJson {
         ignore_errors: bool,
+        sub_json_path: Option<Arc<[String]>>,
     },
     #[cfg(feature = "scan_lines")]
     Lines,
@@ -22,6 +25,7 @@ pub enum ChunkReader {
     NDJson {
         projected_schema: SchemaRef,
         ignore_errors: bool,
+        sub_json_path: Option<Arc<[String]>>,
     },
     #[cfg(feature = "scan_lines")]
     Lines {
@@ -33,9 +37,10 @@ pub enum ChunkReader {
 impl ChunkReaderBuilder {
     pub(super) fn build(&self, projected_schema: SchemaRef) -> ChunkReader {
         match self {
-            Self::NDJson { ignore_errors } => ChunkReader::NDJson {
+            Self::NDJson { ignore_errors, sub_json_path } => ChunkReader::NDJson {
                 projected_schema,
                 ignore_errors: *ignore_errors,
+                sub_json_path: sub_json_path.clone(),
             },
             #[cfg(feature = "scan_lines")]
             Self::Lines => {
@@ -69,12 +74,13 @@ impl ChunkReader {
         match self {
             Self::NDJson {
                 projected_schema,
+                sub_json_path,
                 ignore_errors,
             } => {
                 if projected_schema.is_empty() {
                     Ok(DataFrame::empty_with_height(ndjson::count_rows(chunk)))
                 } else {
-                    parse_ndjson(chunk, None, projected_schema, *ignore_errors)
+                    parse_ndjson(chunk, None, projected_schema, sub_json_path.iter().flat_map(|s|s.iter()), *ignore_errors)
                 }
             },
             #[cfg(feature = "scan_lines")]

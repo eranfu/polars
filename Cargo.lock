@@ -3144,6 +3144,7 @@ dependencies = [
  "half",
  "hashbrown 0.17.1",
  "indexmap",
+ "itertools 0.14.0",
  "itoa",
  "ndarray",
  "num-traits",
@@ -3329,6 +3330,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "itoa",
+ "log",
  "num-traits",
  "polars-arrow",
  "polars-compute",
@@ -3348,6 +3350,7 @@ dependencies = [
  "chrono",
  "either",
  "futures",
+ "itertools 0.14.0",
  "memchr",
  "polars-arrow",
  "polars-buffer",
@@ -3428,6 +3431,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "hex",
  "indexmap",
+ "itertools 0.14.0",
  "jsonpath_lib_polars_vendor",
  "libm",
  "memchr",
@@ -3688,6 +3692,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-queue",
  "futures",
+ "itertools 0.14.0",
  "memchr",
  "num-traits",
  "parking_lot",
@@ -3725,6 +3730,7 @@ dependencies = [
 name = "polars-testing"
 version = "0.54.4"
 dependencies = [
+ "itertools 0.14.0",
  "polars-core",
  "polars-ops",
 ]

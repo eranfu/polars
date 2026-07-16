@@ -1,5 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 //! DataFrame module.
+
 use arrow::datatypes::ArrowSchemaRef;
 use polars_row::ArrayRef;
 use polars_utils::UnitVec;
@@ -45,6 +46,7 @@ use arrow::record_batch::{RecordBatch, RecordBatchT};
 use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use strum_macros::IntoStaticStr;
 
 #[cfg(feature = "row_hash")]
@@ -159,6 +161,7 @@ impl DataFrame {
             }
         }
     }
+
     pub fn new_from_index(&self, index: usize, height: usize) -> Self {
         let new_cols = self.apply_columns(|c| c.new_from_index(index, height));
 
@@ -381,13 +384,8 @@ impl DataFrame {
     /// assert_eq!(df.get_column_names(), &["Language", "Designer"]);
     /// # Ok::<(), PolarsError>(())
     /// ```
-    pub fn get_column_names(&self) -> Vec<&PlSmallStr> {
-        self.columns().iter().map(|s| s.name()).collect()
-    }
-
-    /// Get the [`Vec<PlSmallStr>`] representing the column names.
-    pub fn get_column_names_owned(&self) -> Vec<PlSmallStr> {
-        self.columns().iter().map(|s| s.name().clone()).collect()
+    pub fn get_column_names(&self) -> impl ExactSizeIterator<Item=&PlSmallStr> + Clone {
+        self.columns().iter().map(|s| s.name())
     }
 
     /// Set the column names.
@@ -401,25 +399,56 @@ impl DataFrame {
     /// assert_eq!(df.get_column_names(), &["Set"]);
     /// # Ok::<(), PolarsError>(())
     /// ```
-    pub fn set_column_names<T>(&mut self, new_names: &[T]) -> PolarsResult<()>
+    pub fn set_column_names<'a, T>(
+        &mut self,
+        new_names: impl IntoIterator<IntoIter = impl ExactSizeIterator<Item = &'a T> + Clone>,
+    ) -> PolarsResult<()>
     where
-        T: AsRef<str>,
+        &'a T: Into<PlSmallStr>,
+        T: AsRef<str> + ?Sized + 'a,
     {
+        let new_names = new_names.into_iter();
+
         polars_ensure!(
             new_names.len() == self.width(),
             ShapeMismatch: "{} column names provided for a DataFrame of width {}",
             new_names.len(), self.width()
         );
 
-        validation::ensure_names_unique(new_names)?;
+        validation::ensure_names_unique(new_names.clone())?;
 
-        *unsafe { self.columns_mut() } = std::mem::take(unsafe { self.columns_mut() })
-            .into_iter()
-            .zip(new_names)
-            .map(|(c, name)| c.with_name(PlSmallStr::from_str(name.as_ref())))
-            .collect();
+        unsafe {
+            self.columns_mut()
+                .iter_mut()
+                .zip(new_names)
+                .for_each(|(c, name)| c.rename(name.into()))
+        };
 
         Ok(())
+    }
+
+    /// Rename the columns.
+    /// # Example
+    ///
+    /// ```rust
+    /// # use polars_core::prelude::*;
+    /// let mut df: DataFrame = df!("Mathematical set" => ["ℕ", "ℤ", "𝔻", "ℚ", "ℝ", "ℂ"])?;
+    /// df.rename_columns(|_old_name| "Set".into())?;
+    ///
+    /// assert_eq!(df.get_column_names(), &["Set"]);
+    /// # Ok::<(), PolarsError>(())
+    /// ```
+    pub fn rename_columns<F>(&mut self, get_new_name: F)
+    where
+        F: Fn(&PlSmallStr) -> Option<PlSmallStr>,
+    {
+        unsafe {
+            self.columns_mut().iter_mut().for_each(|col| {
+                if let Some(new_name) = get_new_name(col.name()) {
+                    col.rename(new_name);
+                }
+            });
+        }
     }
 
     /// Get the data types of the columns in the [`DataFrame`].
@@ -805,10 +834,10 @@ impl DataFrame {
     /// | Malta   | 32.7                |
     /// +---------+---------------------+
     /// ```
-    pub fn drop_nulls<S>(&self, subset: Option<&[S]>) -> PolarsResult<Self>
-    where
-        for<'a> &'a S: AsRef<str>,
-    {
+    pub fn drop_nulls(
+        &self,
+        subset: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+    ) -> PolarsResult<Self> {
         if let Some(v) = subset {
             let v = self.select_to_vec(v)?;
             self._drop_nulls_impl(v.as_slice())
@@ -1152,6 +1181,13 @@ impl DataFrame {
         &self,
         selection: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> PolarsResult<Vec<Column>> {
+        self.select_to_iter(selection).map(|c| c.cloned()).collect()
+    }
+
+    pub fn select_to_iter(
+        &self,
+        selection: impl IntoIterator<Item=impl AsRef<str>>,
+    ) -> impl Iterator<Item=PolarsResult<&Column>> {
         AmortizedColumnSelector::new(self).select_multiple(selection)
     }
 
@@ -1369,14 +1405,18 @@ impl DataFrame {
         Ok(self)
     }
 
-    pub fn rename_many<'a>(
+    pub fn rename_many<T>(
         &mut self,
-        renames: impl Iterator<Item = (&'a str, PlSmallStr)>,
-    ) -> PolarsResult<&mut Self> {
+        renames: impl Iterator<Item=(T, PlSmallStr)>,
+    ) -> PolarsResult<&mut Self>
+    where
+        T: AsRef<str>,
+    {
         let mut schema_arc = self.schema().clone();
         let schema = Arc::make_mut(&mut schema_arc);
 
         for (from, to) in renames {
+            let from = from.as_ref();
             if from == to.as_str() {
                 continue;
             }
@@ -2288,41 +2328,31 @@ impl DataFrame {
     /// +-----+-----+-----+
     /// ```
     #[cfg(feature = "algorithm_group_by")]
-    pub fn unique_stable(
+    pub fn unique_stable<'a>(
         &self,
-        subset: Option<&[String]>,
+        subset: Option<impl IntoIterator<Item=&'a (impl AsRef<str> + ?Sized + 'a)>>,
         keep: UniqueKeepStrategy,
         slice: Option<(i64, usize)>,
     ) -> PolarsResult<DataFrame> {
-        self.unique_impl(
-            true,
-            subset.map(|v| v.iter().map(|x| PlSmallStr::from_str(x.as_str())).collect()),
-            keep,
-            slice,
-        )
+        self.unique_impl(true, subset, keep, slice)
     }
 
     /// Unstable distinct. See [`DataFrame::unique_stable`].
     #[cfg(feature = "algorithm_group_by")]
-    pub fn unique<I, S>(
+    pub fn unique<'a>(
         &self,
-        subset: Option<&[String]>,
+        subset: Option<impl IntoIterator<Item=&'a (impl AsRef<str> + 'a)>>,
         keep: UniqueKeepStrategy,
         slice: Option<(i64, usize)>,
     ) -> PolarsResult<DataFrame> {
-        self.unique_impl(
-            false,
-            subset.map(|v| v.iter().map(|x| PlSmallStr::from_str(x.as_str())).collect()),
-            keep,
-            slice,
-        )
+        self.unique_impl(false, subset, keep, slice)
     }
 
     #[cfg(feature = "algorithm_group_by")]
-    pub fn unique_impl(
+    pub fn unique_impl<'a>(
         &self,
         maintain_order: bool,
-        subset: Option<Vec<PlSmallStr>>,
+        subset: Option<impl IntoIterator<Item=&'a (impl AsRef<str> + ?Sized + 'a)>>,
         keep: UniqueKeepStrategy,
         slice: Option<(i64, usize)>,
     ) -> PolarsResult<Self> {
@@ -2331,7 +2361,10 @@ impl DataFrame {
             return Ok(DataFrame::empty_with_height(height));
         }
 
-        let names = subset.unwrap_or_else(|| self.get_column_names_owned());
+        let names = subset.map_or_else(
+            || ::itertools::Either::Left(self.get_column_names().map(|s| s.as_str())),
+            |subset| ::itertools::Either::Right(subset.into_iter().map(|i| i.as_ref())),
+        );
         let mut df = self.clone();
         // take on multiple chunks is terrible
         df.rechunk_mut_par();
@@ -2411,7 +2444,7 @@ impl DataFrame {
     /// ```
     #[cfg(feature = "algorithm_group_by")]
     pub fn is_unique(&self) -> PolarsResult<BooleanChunked> {
-        let gb = self.group_by(self.get_column_names_owned())?;
+        let gb = self.group_by(self.get_column_names())?;
         let groups = gb.get_groups();
         Ok(is_unique_helper(
             groups,
@@ -2436,7 +2469,7 @@ impl DataFrame {
     /// ```
     #[cfg(feature = "algorithm_group_by")]
     pub fn is_duplicated(&self) -> PolarsResult<BooleanChunked> {
-        let gb = self.group_by(self.get_column_names_owned())?;
+        let gb = self.group_by(self.get_column_names())?;
         let groups = gb.get_groups();
         Ok(is_unique_helper(
             groups,
@@ -2525,12 +2558,12 @@ impl DataFrame {
     #[doc(hidden)]
     pub fn _partition_by_impl(
         &self,
-        cols: &[PlSmallStr],
+        cols: impl IntoIterator<Item = impl AsRef<str> + Into<PlSmallStr>> + Copy,
         stable: bool,
         include_key: bool,
         parallel: bool,
     ) -> PolarsResult<Vec<DataFrame>> {
-        let selected_keys = self.select_to_vec(cols.iter().cloned())?;
+        let selected_keys = self.select_to_vec(cols)?;
         let groups = self.group_by_with_series(selected_keys, parallel, stable)?;
         let groups = groups.into_groups();
 
@@ -2538,7 +2571,7 @@ impl DataFrame {
         let df = if include_key {
             self.clone()
         } else {
-            self.drop_many(cols.iter().cloned())
+            self.drop_many(cols)
         };
 
         if parallel {
@@ -2963,7 +2996,11 @@ mod test {
         }
         .unwrap();
         let df = df
-            .unique_stable(None, UniqueKeepStrategy::First, None)
+            .unique_stable(
+                None::<std::iter::Empty<&str>>,
+                UniqueKeepStrategy::First,
+                None,
+            )
             .unwrap()
             .sort(["flt"], SortMultipleOptions::default())
             .unwrap();
@@ -3012,11 +3049,7 @@ mod test {
         }
         .unwrap();
         let out = df
-            .unique_stable(
-                Some(&["x".to_string()][..]),
-                UniqueKeepStrategy::None,
-                Some((0, 2)),
-            )
+            .unique_stable(Some(["x"]), UniqueKeepStrategy::None, Some((0, 2)))
             .unwrap();
         let expected = df! {
             "x" => [3]

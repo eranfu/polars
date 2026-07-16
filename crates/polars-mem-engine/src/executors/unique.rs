@@ -15,11 +15,7 @@ impl Executor for UniqueExec {
             }
         }
         let df = self.input.execute(state)?;
-        let subset = self
-            .options
-            .subset
-            .as_ref()
-            .map(|v| v.iter().cloned().collect::<Vec<_>>());
+        let subset = self.options.subset.as_ref().map(|v| v.iter());
         let keep = self.options.keep_strategy;
 
         state.record(

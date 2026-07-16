@@ -123,7 +123,7 @@ impl DslFunction {
                     .into_vec();
 
                 let args = UnpivotArgsIR::new(
-                    input_schema.iter().map(|(name, _)| name.clone()).collect(),
+                    input_schema.iter().map(|(name, _)| name.clone()),
                     on,
                     index,
                     args.value_name,

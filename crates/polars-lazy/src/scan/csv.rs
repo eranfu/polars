@@ -438,7 +438,7 @@ impl LazyFileListReader for LazyCsvReader {
         self.read_options.row_index.as_ref()
     }
 
-    fn concat_impl(&self, lfs: Vec<LazyFrame>) -> PolarsResult<LazyFrame> {
+    fn concat_impl(&self, lfs: impl IntoIterator<Item = LazyFrame>) -> PolarsResult<LazyFrame> {
         // set to false, as the csv parser has full thread utilization
         let args = UnionArgs {
             rechunk: self.rechunk(),
@@ -447,7 +447,7 @@ impl LazyFileListReader for LazyCsvReader {
             from_partitioned_ds: true,
             ..Default::default()
         };
-        concat_impl(&lfs, args)
+        concat_impl(lfs, args)
     }
 
     /// [CloudOptions] used to list files.

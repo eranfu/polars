@@ -861,7 +861,7 @@ pub fn assert_dataframe_equal(
         ));
     }
 
-    let left_cols = left.get_column_names_owned();
+    let left_cols = left.get_column_names();
 
     let (left, right) = if !options.check_row_order {
         (
@@ -872,7 +872,7 @@ pub fn assert_dataframe_equal(
         (left.clone(), right.clone())
     };
 
-    for col in left_cols.iter() {
+    for col in left_cols {
         let s_left = left.column(col)?;
         let s_right = right.column(col)?;
 

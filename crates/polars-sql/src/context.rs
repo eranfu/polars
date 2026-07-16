@@ -618,11 +618,11 @@ impl SQLContext {
             },
             // UNION ALL BY NAME
             #[cfg(feature = "diagonal_concat")]
-            SetQuantifier::AllByName => concat_lf_diagonal(vec![lf, rf], opts),
+            SetQuantifier::AllByName => concat_lf_diagonal([lf, rf], opts),
             // UNION [DISTINCT] BY NAME
             #[cfg(feature = "diagonal_concat")]
             SetQuantifier::ByName | SetQuantifier::DistinctByName => {
-                let concatenated = concat_lf_diagonal(vec![lf, rf], opts);
+                let concatenated = concat_lf_diagonal([lf, rf], opts);
                 concatenated.map(|lf| lf.unique(None, UniqueKeepStrategy::Any))
             },
             #[allow(unreachable_patterns)]

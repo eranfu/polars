@@ -259,7 +259,7 @@ fn test_predicate_pushdown_block_8847() -> PolarsResult<()> {
         .filter(col("B").eq(lit(1)));
 
     let out = q.collect()?;
-    assert_eq!(out.get_column_names(), &["A", "B"]);
+    itertools::assert_equal(out.get_column_names(), &["A", "B"]);
 
     Ok(())
 }

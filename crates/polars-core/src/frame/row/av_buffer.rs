@@ -1,5 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use std::fmt::{Display, Formatter};
 use std::hint::unreachable_unchecked;
 
 use arrow::bitmap::BitmapBuilder;
@@ -47,55 +48,86 @@ pub enum AnyValueBuffer<'a> {
     All(DataType, Vec<AnyValue<'a>>),
 }
 
+#[derive(Debug)]
+pub struct ErrorValue<'a>(AnyValue<'a>);
+
+impl Display for ErrorValue<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl std::error::Error for ErrorValue<'_> {}
+
 impl<'a> AnyValueBuffer<'a> {
     #[inline]
-    pub fn add(&mut self, val: AnyValue<'a>) -> Option<()> {
+    pub fn add(&mut self, val: AnyValue<'a>) -> Result<(), ErrorValue<'a>> {
         use AnyValueBuffer::*;
         match (self, val) {
             (Boolean(builder), AnyValue::Null) => builder.append_null(),
             (Boolean(builder), AnyValue::Boolean(v)) => builder.append_value(v),
             (Boolean(builder), val) => {
-                let v = val.extract::<u8>()?;
+                let v = val.extract::<u8>().ok_or_else(|| ErrorValue(val))?;
                 builder.append_value(v == 1)
             },
             (Int32(builder), AnyValue::Null) => builder.append_null(),
-            (Int32(builder), val) => builder.append_value(val.extract()?),
+            (Int32(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             (Int64(builder), AnyValue::Null) => builder.append_null(),
-            (Int64(builder), val) => builder.append_value(val.extract()?),
+            (Int64(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             (UInt32(builder), AnyValue::Null) => builder.append_null(),
-            (UInt32(builder), val) => builder.append_value(val.extract()?),
+            (UInt32(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             (UInt64(builder), AnyValue::Null) => builder.append_null(),
-            (UInt64(builder), val) => builder.append_value(val.extract()?),
+            (UInt64(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             (Float32(builder), AnyValue::Null) => builder.append_null(),
             (Float64(builder), AnyValue::Null) => builder.append_null(),
-            (Float32(builder), val) => builder.append_value(val.extract()?),
-            (Float64(builder), val) => builder.append_value(val.extract()?),
+            (Float32(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
+            (Float64(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             (String(builder), AnyValue::String(v)) => builder.append_value(v),
             (String(builder), AnyValue::StringOwned(v)) => builder.append_value(v.as_str()),
             (String(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-i8")]
             (Int8(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-i8")]
-            (Int8(builder), val) => builder.append_value(val.extract()?),
+            (Int8(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             #[cfg(feature = "dtype-i16")]
             (Int16(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-i16")]
-            (Int16(builder), val) => builder.append_value(val.extract()?),
+            (Int16(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             #[cfg(feature = "dtype-u8")]
             (UInt8(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-u8")]
-            (UInt8(builder), val) => builder.append_value(val.extract()?),
+            (UInt8(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             #[cfg(feature = "dtype-u16")]
             (UInt16(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-u16")]
-            (UInt16(builder), val) => builder.append_value(val.extract()?),
+            (UInt16(builder), val) => {
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
+            },
             #[cfg(feature = "dtype-date")]
             (Date(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-date")]
             (Date(builder), AnyValue::Date(v)) => builder.append_value(v),
             #[cfg(feature = "dtype-date")]
             (Date(builder), val) if val.is_primitive_numeric() => {
-                builder.append_value(val.extract()?)
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
             },
             #[cfg(feature = "dtype-datetime")]
             (Datetime(builder, _, _), AnyValue::Null) => builder.append_null(),
@@ -111,7 +143,7 @@ impl<'a> AnyValueBuffer<'a> {
             },
             #[cfg(feature = "dtype-datetime")]
             (Datetime(builder, _, _), val) if val.is_primitive_numeric() => {
-                builder.append_value(val.extract()?)
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
             },
             #[cfg(feature = "dtype-duration")]
             (Duration(builder, _), AnyValue::Null) => builder.append_null(),
@@ -122,7 +154,7 @@ impl<'a> AnyValueBuffer<'a> {
             },
             #[cfg(feature = "dtype-duration")]
             (Duration(builder, _), val) if val.is_primitive_numeric() => {
-                builder.append_value(val.extract()?)
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
             },
             #[cfg(feature = "dtype-time")]
             (Time(builder), AnyValue::Time(v)) => builder.append_value(v),
@@ -130,7 +162,7 @@ impl<'a> AnyValueBuffer<'a> {
             (Time(builder), AnyValue::Null) => builder.append_null(),
             #[cfg(feature = "dtype-time")]
             (Time(builder), val) if val.is_primitive_numeric() => {
-                builder.append_value(val.extract()?)
+                builder.append_value(val.extract().ok_or_else(|| ErrorValue(val))?)
             },
             (Null(builder), AnyValue::Null) => builder.append_null(),
             // Struct and List can be recursive so use AnyValues for that
@@ -147,15 +179,16 @@ impl<'a> AnyValueBuffer<'a> {
                     let mut fmt = DecimalFmtBuffer::new();
                     builder.append_value(fmt.format_dec128(v, s, false, false));
                 },
-                _ => return None,
+                _ => return Err(ErrorValue(av)),
             },
-            _ => return None,
+            (_, val) => return Err(ErrorValue(val)),
         };
-        Some(())
+        Ok(())
     }
 
-    pub(crate) fn add_fallible(&mut self, val: &AnyValue<'a>) -> PolarsResult<()> {
-        self.add(val.clone()).ok_or_else(|| {
+    pub(crate) fn add_fallible(&mut self, val: AnyValue<'a>) -> PolarsResult<()> {
+        self.add(val).map_err(|e| {
+            let val = e.0;
             polars_err!(
                 ComputeError: "could not append value: {} of type: {} to the builder; make sure that all rows \
                 have the same schema or consider increasing `infer_schema_length`\n\
@@ -388,7 +421,7 @@ impl<'a> AnyValueBufferTrusted<'a> {
             Struct(outer_validity, builders) => {
                 outer_validity.push(false);
                 for (b, _) in builders.iter_mut() {
-                    b.add(AnyValue::Null);
+                    b.add(AnyValue::Null).ok();
                 }
             },
             Null(builder) => builder.append_null(),

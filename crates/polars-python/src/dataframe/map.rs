@@ -1,3 +1,4 @@
+use either::Either;
 use polars::frame::row::{Row, rows_to_schema_first_non_null};
 use polars_core::utils::CustomIterTools;
 use pyo3::IntoPyObjectExt;
@@ -128,34 +129,20 @@ fn collect_lambda_ret_with_rows_output<'py>(
     inference_size: usize,
     ret_iter: impl Iterator<Item = PyResult<Bound<'py, PyAny>>>,
 ) -> PolarsResult<DataFrame> {
-    let null_row = Row::new(vec![AnyValue::Null; width]);
-
-    let mut row_buf = Row::default();
-    let mut row_iter = ret_iter.map(|retval| {
+    let mut row_iter = ret_iter.map(|retval| -> PolarsResult<_> {
         let retval = retval?;
-        if retval.is_none() {
-            Ok(&null_row)
+        Ok(if retval.is_none() {
+            Either::Left(std::iter::repeat_n(AnyValue::Null, width))
         } else {
             let tuple = retval.cast::<PyTuple>().map_err(|_| polars_err!(ComputeError: "expected tuple, got {}", retval.get_type().qualname().unwrap()))?;
-            row_buf.0.clear();
-            for v in tuple {
-                let v = v.extract::<Wrap<AnyValue>>().unwrap().0;
-                row_buf.0.push(v);
-            }
-            let ptr = &row_buf as *const Row;
-            // SAFETY:
-            // we know that row constructor of polars dataframe does not keep a reference
-            // to the row. Before we mutate the row buf again, the reference is dropped.
-            // we only cannot prove it to the compiler.
-            // we still to this because it save a Vec allocation in a hot loop.
-            Ok(unsafe { &*ptr })
-        }
+            Either::Right(tuple.into_iter().map(|v| v.extract::<Wrap<AnyValue>>().unwrap().0))
+        })
     });
 
     // First rows for schema inference.
     let mut buf = Vec::with_capacity(inference_size);
-    for v in (&mut row_iter).take(inference_size) {
-        buf.push(v?.clone());
+    for row in (&mut row_iter).take(inference_size) {
+        buf.push(Row::new(row?.collect()));
     }
 
     let schema = rows_to_schema_first_non_null(&buf, Some(50))?;
@@ -164,15 +151,24 @@ fn collect_lambda_ret_with_rows_output<'py>(
         // SAFETY: we know the iterators size.
         let iter = unsafe {
             (0..init_null_count)
-                .map(|_| Ok(&null_row))
-                .chain(buf.iter().map(Ok))
-                .chain(row_iter)
+                .map(|_| Either::Left(Either::Left(std::iter::repeat_n(AnyValue::Null, width))))
+                .chain(
+                    buf.into_iter()
+                        .map(|r| Either::Left(Either::Right(r.into_iter()))),
+                )
+                .map(Ok)
+                .chain(row_iter.map(|r| r.map(Either::Right)))
                 .trust_my_length(height)
         };
         DataFrame::try_from_rows_iter_and_schema(iter, &schema)
     } else {
         // SAFETY: we know the iterators size.
-        let iter = unsafe { buf.iter().map(Ok).chain(row_iter).trust_my_length(height) };
+        let iter = unsafe {
+            buf.into_iter()
+                .map(|r| Ok(Either::Left(r.into_iter())))
+                .chain(row_iter.map(|r| r.map(Either::Right)))
+                .trust_my_length(height)
+        };
         DataFrame::try_from_rows_iter_and_schema(iter, &schema)
     }
 }

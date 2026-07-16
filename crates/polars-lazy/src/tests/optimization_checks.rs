@@ -301,7 +301,7 @@ fn test_lazy_filter_and_rename() {
     // the rename function should not interfere with the predicate pushdown
     assert!(predicate_at_scan(lf.clone()));
 
-    assert_eq!(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
+    itertools::assert_equal(lf.collect().unwrap().get_column_names(), &["x", "b", "c"]);
 }
 
 #[test]
@@ -492,9 +492,9 @@ fn test_flatten_unions() -> PolarsResult<()> {
         parallel: true,
         ..Default::default()
     };
-    let lf2 = concat(&[lf.clone(), lf.clone()], args).unwrap();
-    let lf3 = concat(&[lf.clone(), lf.clone(), lf], args).unwrap();
-    let lf4 = concat(&[lf2, lf3], args).unwrap();
+    let lf2 = concat([lf.clone(), lf.clone()], args).unwrap();
+    let lf3 = concat([lf.clone(), lf.clone(), lf], args).unwrap();
+    let lf4 = concat([lf2, lf3], args).unwrap();
     let root = lf4.optimize(&mut lp_arena, &mut expr_arena).unwrap();
     let lp = lp_arena.get(root);
     match lp {

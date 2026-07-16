@@ -123,10 +123,7 @@ impl DataFrame {
 
     /// Group DataFrame using a Series column.
     /// The groups are ordered by their smallest row index.
-    pub fn group_by_stable<I, S>(&self, by: I) -> PolarsResult<GroupBy<'_>>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
+    pub fn group_by_stable(&self, by: impl IntoIterator<Item=impl AsRef<str>>) -> PolarsResult<GroupBy<'_>>
     {
         let selected_keys = self.select_to_vec(by)?;
         self.group_by_with_series(selected_keys, true, true)

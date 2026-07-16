@@ -76,7 +76,7 @@ pub trait UnpivotDF: IntoDf {
         J: IntoVec<PlSmallStr>,
     {
         self.unpivot2(UnpivotArgsIR::new(
-            self.to_df().get_column_names_owned(),
+            self.to_df().get_column_names().cloned(),
             on.map(|on| on.into_vec()),
             index.into_vec(),
             None,
@@ -201,7 +201,7 @@ mod test {
 
         // Specify on and index
         let unpivoted = df.unpivot(Some(["C", "D"]), ["A", "B"])?;
-        assert_eq!(
+        itertools::assert_equal(
             unpivoted.get_column_names(),
             &["A", "B", "variable", "value"]
         );

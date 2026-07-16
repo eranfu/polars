@@ -33,7 +33,7 @@ pub struct UnpivotArgsIR {
 
 impl UnpivotArgsIR {
     pub fn new(
-        all_column_names: Vec<PlSmallStr>,
+        all_column_names: impl IntoIterator<Item=PlSmallStr>,
         on: Option<Vec<PlSmallStr>>,
         index: Vec<PlSmallStr>,
         value_name: Option<PlSmallStr>,

@@ -46,7 +46,7 @@ fn test_cse_unions() -> PolarsResult<()> {
     let lf1 = lf.clone().with_column(col("category").str().to_uppercase());
 
     let lf = concat(
-        &[lf1.clone(), lf, lf1],
+        [lf1.clone(), lf, lf1],
         UnionArgs {
             rechunk: false,
             parallel: false,
@@ -80,7 +80,7 @@ fn test_cse_unions() -> PolarsResult<()> {
     }));
     assert_eq!(cache_count, 5);
     let out = lf.collect()?;
-    assert_eq!(out.get_column_names(), &["category", "fats_g"]);
+    itertools::assert_equal(out.get_column_names(), &["category", "fats_g"]);
 
     Ok(())
 }
@@ -144,8 +144,8 @@ fn test_cse_union2_4925() -> PolarsResult<()> {
         rechunk: false,
         ..Default::default()
     };
-    let lf1 = concat(&[lf1.clone(), lf1], args)?;
-    let lf2 = concat(&[lf2.clone(), lf2], args)?;
+    let lf1 = concat([lf1.clone(), lf1], args)?;
+    let lf2 = concat([lf2.clone(), lf2], args)?;
 
     let q = lf1.inner_join(lf2, col("ts"), col("ts")).select([
         col("ts"),
@@ -330,7 +330,7 @@ fn test_cse_columns_projections() -> PolarsResult<()> {
 
     let out = q.collect()?;
 
-    assert_eq!(out.get_column_names(), &["C", "A", "D"]);
+    itertools::assert_equal(out.get_column_names(), &["C", "A", "D"]);
 
     Ok(())
 }

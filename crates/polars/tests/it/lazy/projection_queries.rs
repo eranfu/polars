@@ -58,7 +58,7 @@ fn test_full_outer_join_with_column_2988() -> PolarsResult<()> {
         )
         .with_columns([col("key1")])
         .collect()?;
-    assert_eq!(out.get_column_names(), &["key1", "key2", "val1", "val2"]);
+    itertools::assert_equal(out.get_column_names(), &["key1", "key2", "val1", "val2"]);
     assert_eq!(
         Vec::from(out.column("key1")?.str()?),
         &[Some("bar"), Some("baz"), Some("foo")]
@@ -165,7 +165,7 @@ fn test_unnest_pushdown() -> PolarsResult<()> {
         .select([col("email")])
         .collect()?;
 
-    assert_eq!(out.get_column_names(), &["email"]);
+    itertools::assert_equal(out.get_column_names(), &["email"]);
 
     Ok(())
 }
@@ -190,6 +190,6 @@ fn test_join_duplicate_7314() -> PolarsResult<()> {
         .select([col("a"), col("c") * col("d")])
         .collect()?;
 
-    assert_eq!(out.get_column_names(), &["a", "c"]);
+    itertools::assert_equal(out.get_column_names(), &["a", "c"]);
     Ok(())
 }

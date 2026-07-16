@@ -76,6 +76,7 @@ use polars_core::prelude::*;
 use polars_error::{PolarsResult, polars_bail};
 use polars_json::json::write::FallibleStreamingIterator;
 use simd_json::BorrowedValue;
+use simd_json::prelude::*;
 
 use crate::mmap::{MmapBytesReader, ReaderBytes};
 use crate::prelude::*;
@@ -208,6 +209,7 @@ where
     R: MmapBytesReader,
 {
     reader: R,
+    sub_json_path: &'a [&'a str],
     rechunk: bool,
     ignore_errors: bool,
     infer_schema_len: Option<NonZeroUsize>,
@@ -236,6 +238,7 @@ where
     fn new(reader: R) -> Self {
         JsonReader {
             reader,
+            sub_json_path: &[],
             rechunk: true,
             ignore_errors: false,
             infer_schema_len: Some(NonZeroUsize::new(100).unwrap()),
@@ -254,7 +257,7 @@ where
 
     /// Take the SerReader and return a parsed DataFrame.
     ///
-    /// Because JSON values specify their types (number, string, etc), no upcasting or conversion is performed between
+    /// Because JSON values specify their types (number, string, etc.), no upcasting or conversion is performed between
     /// incompatible types in the input. In the event that a column contains mixed dtypes, is it unspecified whether an
     /// error is returned or whether elements of incompatible dtypes are replaced with `null`.
     fn finish(mut self) -> PolarsResult<DataFrame> {
@@ -275,111 +278,25 @@ where
                 } else {
                     simd_json::to_borrowed_value(owned).map_err(to_compute_err)?
                 };
-                if let BorrowedValue::Array(array) = &json_value {
-                    if array.is_empty() & self.schema.is_none() & self.schema_overwrite.is_none() {
-                        return Ok(DataFrame::empty());
-                    }
+
+                let mut json_value = &json_value;
+
+                for &section in self.sub_json_path {
+                    json_value = json_value.get(section).ok_or_else(|| polars_err!(NoData: "Can not find the field of json. field: {}", section))?
                 }
 
-                let allow_extra_fields_in_struct = self.schema.is_some();
-
-                let mut schema = if let Some(schema) = self.schema {
-                    Arc::unwrap_or_clone(schema)
-                } else {
-                    // Infer.
-                    let inner_dtype = if let BorrowedValue::Array(values) = &json_value {
-                        infer::json_values_to_supertype(
-                            values,
-                            self.infer_schema_len
-                                .unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
-                        )?
-                    } else {
-                        DataType::from_arrow_dtype(&polars_json::json::infer(&json_value)?)
-                    };
-
-                    let DataType::Struct(fields) = inner_dtype else {
-                        polars_bail!(ComputeError: "can only deserialize json objects")
-                    };
-
-                    Schema::from_iter(fields)
-                };
-
-                if let Some(overwrite) = self.schema_overwrite {
-                    overwrite_schema(&mut schema, overwrite)?;
-                }
-
-                let mut needs_cast = false;
-                let deserialize_schema = schema
-                    .iter()
-                    .map(|(name, dt)| {
-                        Field::new(
-                            name.clone(),
-                            dt.clone().map_leaves(&mut |leaf_dt| {
-                                // Deserialize enums and categoricals as strings first.
-                                match leaf_dt {
-                                    #[cfg(feature = "dtype-categorical")]
-                                    DataType::Enum(..) | DataType::Categorical(..) => {
-                                        needs_cast = true;
-                                        DataType::String
-                                    },
-                                    leaf_dt => leaf_dt,
-                                }
-                            }),
-                        )
-                    })
-                    .collect();
-
-                let arrow_dtype =
-                    DataType::Struct(deserialize_schema).to_arrow(CompatLevel::newest());
-
-                let arrow_dtype = if let BorrowedValue::Array(_) = &json_value {
-                    ArrowDataType::LargeList(Box::new(arrow::datatypes::Field::new(
-                        LIST_VALUES_NAME,
-                        arrow_dtype,
-                        true,
-                    )))
-                } else {
-                    arrow_dtype
-                };
-
-                let arr = polars_json::json::deserialize(
-                    &json_value,
-                    arrow_dtype,
-                    allow_extra_fields_in_struct,
-                )?;
-
-                let arr = arr.as_any().downcast_ref::<StructArray>().ok_or_else(
-                    || polars_err!(ComputeError: "can only deserialize json objects"),
-                )?;
-
-                let mut df = DataFrame::try_from(arr.clone())?;
-
-                if df.width() == 0 && df.height() <= 1 {
-                    // read_json("{}")
-                    unsafe { df.set_height(0) };
-                }
-
-                if needs_cast {
-                    for (col, dt) in unsafe { df.columns_mut() }
-                        .iter_mut()
-                        .zip(schema.iter_values())
-                    {
-                        *col = col.cast_with_options(
-                            dt,
-                            if self.ignore_errors {
-                                CastOptions::NonStrict
-                            } else {
-                                CastOptions::Strict
-                            },
-                        )?;
-                    }
-                }
-
-                df
-            },
+                json_to_data_frame(
+                    json_value,
+                    self.schema,
+                    self.schema_overwrite,
+                    self.infer_schema_len,
+                    self.ignore_errors,
+                )
+            }
             JsonFormat::JsonLines => {
                 let mut json_reader = CoreJsonReader::new(
                     rb,
+                    self.sub_json_path,
                     None,
                     self.schema,
                     self.schema_overwrite,
@@ -398,9 +315,9 @@ where
                     df.rechunk_mut_par();
                 }
 
-                df
-            },
-        };
+                Ok(df)
+            }
+        }?;
 
         // TODO! Ensure we don't materialize the columns we don't need
         if let Some(proj) = self.projection.as_deref() {
@@ -409,6 +326,116 @@ where
             Ok(out)
         }
     }
+}
+
+pub fn json_to_data_frame(
+    json_value: &simd_json::BorrowedValue,
+    schema: Option<SchemaRef>,
+    schema_overwrite: Option<&Schema>,
+    infer_schema_len: Option<NonZeroUsize>,
+    ignore_errors: bool,
+) -> PolarsResult<DataFrame> {
+    if let BorrowedValue::Array(array) = &json_value {
+        if array.is_empty() & schema.is_none() & schema_overwrite.is_none() {
+            return Ok(DataFrame::empty());
+        }
+    }
+
+    let allow_extra_fields_in_struct = schema.is_some();
+
+    let mut schema = if let Some(schema) = schema {
+        Arc::unwrap_or_clone(schema)
+    } else {
+        // Infer.
+        let inner_dtype = if let BorrowedValue::Array(values) = &json_value {
+            infer::json_values_to_supertype(
+                values,
+                infer_schema_len
+                    .unwrap_or(NonZeroUsize::new(usize::MAX).unwrap()),
+            )?
+        } else {
+            DataType::from_arrow_dtype(&polars_json::json::infer(json_value)?)
+        };
+
+        let DataType::Struct(fields) = inner_dtype else {
+            polars_bail!(ComputeError: "can only deserialize json objects")
+        };
+
+        Schema::from_iter(fields)
+    };
+
+    if let Some(overwrite) = schema_overwrite {
+        overwrite_schema(&mut schema, overwrite)?;
+    }
+
+    let mut needs_cast = false;
+    let deserialize_schema = schema
+        .iter()
+        .map(|(name, dt)| {
+            Field::new(
+                name.clone(),
+                dt.clone().map_leaves(&mut |leaf_dt| {
+                    // Deserialize enums and categoricals as strings first.
+                    match leaf_dt {
+                        #[cfg(feature = "dtype-categorical")]
+                        DataType::Enum(..) | DataType::Categorical(..) => {
+                            needs_cast = true;
+                            DataType::String
+                        }
+                        leaf_dt => leaf_dt,
+                    }
+                }),
+            )
+        })
+        .collect();
+
+    let arrow_dtype =
+        DataType::Struct(deserialize_schema).to_arrow(CompatLevel::newest());
+
+    let arrow_dtype = if let BorrowedValue::Array(_) = &json_value {
+        ArrowDataType::LargeList(Box::new(arrow::datatypes::Field::new(
+            LIST_VALUES_NAME,
+            arrow_dtype,
+            true,
+        )))
+    } else {
+        arrow_dtype
+    };
+
+    let arr = polars_json::json::deserialize(
+        json_value,
+        arrow_dtype,
+        allow_extra_fields_in_struct,
+    )?;
+
+    let arr = arr.as_any().downcast_ref::<StructArray>().ok_or_else(
+        || polars_err!(ComputeError: "can only deserialize json objects"),
+    )?;
+
+    let mut df = DataFrame::try_from(arr.clone())?;
+
+    if df.width() == 0 && df.height() <= 1 {
+        // read_json("{}")
+        unsafe { df.set_height(0) };
+    }
+
+    if needs_cast {
+        for (col, dt) in unsafe { df.columns_mut() }
+            .iter_mut()
+            .zip(schema.iter_values())
+        {
+            *col = col.cast_with_options(
+                dt,
+                if ignore_errors {
+                    CastOptions::NonStrict
+                } else {
+                    CastOptions::Strict
+                },
+            )?;
+        }
+    }
+
+    Ok(df)
 }
 
 impl<'a, R> JsonReader<'a, R>
@@ -466,6 +493,47 @@ where
     /// Return a `null` if an error occurs during parsing.
     pub fn with_ignore_errors(mut self, ignore: bool) -> Self {
         self.ignore_errors = ignore;
+        self
+    }
+
+    /// Sets the path to the JSON subdirectory.
+    ///
+    /// Use this when you only need to access a specific portion of the JSON.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # fn main() -> polars_error::PolarsResult<()> {
+    ///
+    /// use polars_io::SerReader;
+    ///
+    /// let json = r#"{
+    ///     "data": {
+    ///         "data_data": [
+    ///             {"a": 1, "b": 2},
+    ///             {"a": 3, "b": 4}
+    ///         ]
+    ///     },
+    ///     "other": {"foo": 1, "bar": "2"}
+    /// }"#;
+    ///
+    /// let df = polars_io::json::JsonReader::new(std::io::Cursor::new(json))
+    ///    .with_sub_json_path(&["data", "data_data"])
+    ///    .finish()?;
+    ///
+    /// let reference = polars_core::df! {
+    ///     "a" => [1, 3],
+    ///     "b" => [2, 4],
+    /// }?;
+    ///
+    /// assert_eq!(reference, df);
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    pub fn with_sub_json_path(mut self, sub_json_path: &'a [&'a str]) -> Self {
+        self.sub_json_path = sub_json_path;
         self
     }
 }

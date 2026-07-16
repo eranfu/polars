@@ -7,7 +7,7 @@ use polars_core::prelude::*;
 use polars_core::runtime::RAYON;
 use polars_core::utils::accumulate_dataframes_vertical;
 use rayon::prelude::*;
-
+use simd_json::prelude::*;
 use crate::RowIndex;
 use crate::mmap::ReaderBytes;
 use crate::ndjson::buffer::*;
@@ -18,6 +18,7 @@ const CLOSING_BRACKET: u8 = b'}';
 
 pub(crate) struct CoreJsonReader<'a> {
     reader_bytes: Option<ReaderBytes<'a>>,
+    sub_json_path: &'a [&'a str],
     n_rows: Option<usize>,
     schema: SchemaRef,
     n_threads: Option<usize>,
@@ -29,10 +30,12 @@ pub(crate) struct CoreJsonReader<'a> {
     predicate: Option<Arc<dyn PhysicalIoExpr>>,
     projection: Option<Arc<[PlSmallStr]>>,
 }
+
 impl<'a> CoreJsonReader<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         reader_bytes: ReaderBytes<'a>,
+        sub_json_path: &'a [&'a str],
         n_rows: Option<usize>,
         schema: Option<SchemaRef>,
         schema_overwrite: Option<&Schema>,
@@ -63,6 +66,7 @@ impl<'a> CoreJsonReader<'a> {
 
         Ok(CoreJsonReader {
             reader_bytes: Some(reader_bytes),
+            sub_json_path,
             schema,
             sample_size,
             n_rows,
@@ -120,6 +124,7 @@ impl<'a> CoreJsonReader<'a> {
                         &bytes[start_pos..stop_at_nbytes],
                         Some(capacity),
                         &self.schema,
+                        self.sub_json_path,
                         self.ignore_errors,
                     )?;
 
@@ -175,6 +180,7 @@ impl<'a> CoreJsonReader<'a> {
 #[inline(always)]
 fn parse_impl(
     bytes: &[u8],
+    sub_json_path: impl IntoIterator<Item = impl AsRef<str>>,
     buffers: &mut PlIndexMap<BufferKey, Buffer>,
     scratch: &mut Scratch,
     ignore_errors: bool,
@@ -184,10 +190,19 @@ fn parse_impl(
     let n = scratch.json.len();
     let value = simd_json::to_borrowed_value_with_buffers(&mut scratch.json, &mut scratch.buffers)
         .map_err(|e| polars_err!(ComputeError: "error parsing line: {}", e))?;
+
+    let mut value = &value;
+    for section in sub_json_path {
+        let section = section.as_ref();
+        value = value.get(section).ok_or_else(
+            || polars_err!(NoData: "Can not find the field in JSON line. Field: {}", section),
+        )?;
+    }
+
     match value {
         simd_json::BorrowedValue::Object(value) => {
             buffers.iter_mut().try_for_each(|(s, inner)| {
-                match s.0.map_lookup(&value) {
+                match s.0.map_lookup(value) {
                     Some(v) => inner.add(v)?,
                     None => inner.add_null(),
                 }
@@ -230,6 +245,7 @@ pub fn is_json_line(bytes: &[u8]) -> bool {
 
 fn parse_lines(
     bytes: &[u8],
+    sub_json_path: impl IntoIterator<Item = impl AsRef<str>> + Clone,
     buffers: &mut PlIndexMap<BufferKey, Buffer>,
     ignore_errors: bool,
 ) -> PolarsResult<()> {
@@ -237,7 +253,7 @@ fn parse_lines(
 
     let iter = json_lines(bytes);
     for bytes in iter {
-        parse_impl(bytes, buffers, &mut scratch, ignore_errors)?;
+        parse_impl(bytes, sub_json_path.clone(), buffers, &mut scratch, ignore_errors)?;
     }
     Ok(())
 }
@@ -246,12 +262,13 @@ pub fn parse_ndjson(
     bytes: &[u8],
     n_rows_hint: Option<usize>,
     schema: &Schema,
+    sub_json_path: impl IntoIterator<Item = impl AsRef<str>> + Clone,
     ignore_errors: bool,
 ) -> PolarsResult<DataFrame> {
     let capacity = n_rows_hint.unwrap_or_else(|| estimate_n_lines_in_chunk(bytes));
 
     let mut buffers = init_buffers(schema, capacity, ignore_errors)?;
-    parse_lines(bytes, &mut buffers, ignore_errors)?;
+    parse_lines(bytes, sub_json_path, &mut buffers, ignore_errors)?;
 
     DataFrame::new_infer_height(
         buffers

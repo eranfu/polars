@@ -10,6 +10,7 @@ use polars_core::utils::split_and_flatten;
 use polars_core::with_match_physical_float_polars_type;
 use polars_utils::abs_diff::AbsDiff;
 use polars_utils::hashing::{DirtyHash, hash_to_partition};
+use polars_utils::itertools::Itertools;
 use polars_utils::nulls::IsNull;
 use polars_utils::total_ord::{ToTotalOrd, TotalEq, TotalHash};
 use rayon::prelude::*;
@@ -577,7 +578,7 @@ pub trait AsofJoinBy: IntoDf {
             allow_eq,
         )?;
 
-        let mut drop_these = right_by.get_column_names();
+        let mut drop_these = right_by.get_column_names().collect_vec();
         if coalesce && left_asof_name == right_asof_name {
             drop_these.push(right_asof_name);
         }
@@ -673,8 +674,8 @@ mod test {
             true,
             true,
         )?;
-        assert_eq!(out.get_column_names(), &["a", "b", "right_vals"]);
-        let out = out.column("right_vals").unwrap();
+        ::itertools::assert_equal(out.get_column_names(), &["a", "b", "right_vals"]);
+        let out = out.column("right_vals")?;
         let out = out.i32().unwrap();
         assert_eq!(
             Vec::from(out),
@@ -767,7 +768,7 @@ mod test {
             true,
             true,
         )?;
-        assert_eq!(out.get_column_names(), &["a", "b", "right_vals"]);
+        ::itertools::assert_equal(out.get_column_names(), &["a", "b", "right_vals"]);
         let out = out.column("right_vals").unwrap();
         let out = out.i32().unwrap();
         assert_eq!(
@@ -786,7 +787,7 @@ mod test {
             true,
             true,
         )?;
-        assert_eq!(out.get_column_names(), &["a", "b", "right_vals"]);
+        ::itertools::assert_equal(out.get_column_names(), &["a", "b", "right_vals"]);
         let out = out.column("right_vals").unwrap();
         let out = out.i32().unwrap();
         assert_eq!(

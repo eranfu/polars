@@ -146,7 +146,7 @@ fn test_union_all() {
     )
     "#;
     let expected = polars_lazy::dsl::concat(
-        vec![df1.lazy(), df2.lazy()],
+        [df1.lazy(), df2.lazy()],
         UnionArgs {
             rechunk: false,
             parallel: true,

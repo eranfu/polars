@@ -93,6 +93,7 @@ impl FileReaderBuilder for NDJsonReaderBuilder {
         let scan_source = source;
         let chunk_reader_builder = ChunkReaderBuilder::NDJson {
             ignore_errors: self.options.ignore_errors,
+            sub_json_path: self.options.sub_json_path.clone(),
         };
         let verbose = config::verbose();
 

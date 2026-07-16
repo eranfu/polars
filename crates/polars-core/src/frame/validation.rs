@@ -1,5 +1,8 @@
+use std::hash::Hash;
+use hashbrown::hash_set::Entry;
+use smallvec::SmallVec;
 use polars_error::{PolarsResult, polars_bail};
-use polars_utils::aliases::{InitHashMaps, PlHashSet};
+use polars_utils::aliases::{InitHashMaps, PlHashSet, PlRandomState};
 
 use crate::frame::column::Column;
 
@@ -65,28 +68,28 @@ pub(super) fn validate_columns_slice(
     Ok(())
 }
 
-pub(super) fn ensure_names_unique<T>(names: &[T]) -> PolarsResult<()>
-where
-    T: AsRef<str>,
+pub(super) fn ensure_names_unique<'a>(mut names: impl ExactSizeIterator<Item=&'a (impl AsRef<str> + ?Sized + 'a)> + Clone) -> PolarsResult<()>
 {
+    let len = names.len();
+
     // Always unique.
-    if names.len() <= 1 {
+    if len <= 1 {
         return Ok(());
     }
 
-    if names.len() <= 4 {
+    if len <= 4 {
         // Too small to be worth spawning a hashmap for, this is at most 6 comparisons.
-        for i in 0..names.len() - 1 {
-            let name = names[i].as_ref();
-
-            for other in names.iter().skip(i + 1) {
+        while let Some(name) = names.next() {
+            let name = name.as_ref();
+            let others = names.clone();
+            for other in others {
                 if name == other.as_ref() {
                     polars_bail!(duplicate = name);
                 }
             }
         }
     } else {
-        let mut names_set: PlHashSet<&str> = PlHashSet::with_capacity(names.len());
+        let mut names_set = PlHashSet::with_capacity(len);
 
         for name in names {
             let name = name.as_ref();

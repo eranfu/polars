@@ -197,7 +197,7 @@ fn visualize_plan_rec(
         } => (
             format!(
                 "in-memory-source\\ncols: {}",
-                df.get_column_names_owned().join(", ")
+                df.get_column_names().join(", ")
             ),
             &[][..],
         ),

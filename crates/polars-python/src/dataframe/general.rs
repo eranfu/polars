@@ -157,7 +157,7 @@ impl PyDataFrame {
     pub fn set_column_names(&self, names: Vec<PyBackedStr>) -> PyResult<()> {
         self.df
             .write()
-            .set_column_names(&names)
+            .set_column_names(names.iter().map(|s| &**s))
             .map_err(PyPolarsErr::from)?;
         Ok(())
     }
@@ -446,7 +446,7 @@ impl PyDataFrame {
     ) -> PyResult<Self> {
         use polars_ops::unpivot::UnpivotDF;
         let args = UnpivotArgsIR::new(
-            self.df.read().get_column_names_owned(),
+            self.df.read().get_column_names().cloned(),
             on.map(strings_to_pl_smallstr),
             strings_to_pl_smallstr(index),
             value_name.map(|s| s.into()),

@@ -147,6 +147,12 @@ impl AsRef<std::ffi::OsStr> for PlSmallStr {
 }
 
 // From impls
+impl From<&PlSmallStr> for PlSmallStr {
+    #[inline(always)]
+    fn from(value: &PlSmallStr) -> Self {
+        value.clone()
+    }
+}
 
 impl From<&str> for PlSmallStr {
     #[inline(always)]

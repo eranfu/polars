@@ -49,12 +49,11 @@ impl<'a> AmortizedColumnSelector<'a> {
 
     /// Does not error on duplicate selections.
     pub(super) fn select_multiple(
-        &self,
-        names: impl IntoIterator<Item = impl AsRef<str>>,
-    ) -> PolarsResult<Vec<Column>> {
+        self,
+        names: impl IntoIterator<IntoIter=impl Iterator<Item=impl AsRef<str>>>,
+    ) -> impl Iterator<Item=PolarsResult<&'a Column>> {
         names
             .into_iter()
-            .map(|name| self.select(name.as_ref()).cloned())
-            .collect()
+            .map(move |name| self.select(name.as_ref()))
     }
 }

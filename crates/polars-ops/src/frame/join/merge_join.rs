@@ -326,15 +326,13 @@ pub fn gather_and_postprocess(
 
     // Rename any right columns to "{}_right"
     let left_cols: PlHashSet<_> = left.columns().iter().map(Column::name).cloned().collect();
-    let right_cols_vec = right.get_column_names_owned();
-    let renames = right_cols_vec
-        .iter()
-        .filter(|c| left_cols.contains(*c))
-        .map(|c| {
-            let renamed = format_pl_smallstr!("{}{}", c, args.suffix());
-            (c.as_str(), renamed)
-        });
-    right.rename_many(renames).unwrap();
+    right.rename_columns(|old| {
+        if left_cols.contains(old) {
+            Some(format_pl_smallstr!("{}{}", old, args.suffix()))
+        } else {
+            None
+        }
+    });
 
     left.hstack_mut(right.columns())?;
 

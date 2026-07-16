@@ -28,6 +28,7 @@ either = { workspace = true }
 hashbrown = { workspace = true }
 hex = { workspace = true, optional = true }
 indexmap = { workspace = true }
+itertools = { workspace = true }
 libm = { workspace = true }
 memchr = { workspace = true }
 num-traits = { workspace = true }
@@ -102,11 +103,11 @@ serde = [
   "polars-compute/serde",
 ]
 dsl-schema = [
-  "dep:schemars",
-  "polars-core/dsl-schema",
-  "polars-utils/dsl-schema",
-  "polars-schema/dsl-schema",
-  "polars-compute/dsl-schema",
+    "dep:schemars",
+    "polars-core/dsl-schema",
+    "polars-utils/dsl-schema",
+    "polars-schema/dsl-schema",
+    "polars-compute/dsl-schema",
 ]
 
 # extra utilities for BinaryChunked

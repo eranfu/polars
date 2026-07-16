@@ -159,7 +159,7 @@ fn estimate_unique_count(keys: &[Column], mut sample_size: usize) -> PolarsResul
         let offset = (keys[0].len() / 2) as i64;
         let df = unsafe { DataFrame::new_unchecked_infer_height(keys.to_vec()) };
         let df = df.slice(offset, sample_size);
-        let names = df.get_column_names().into_iter().cloned();
+        let names = df.get_column_names().cloned();
         let gb = df.group_by(names).unwrap();
         Ok(finish(gb.get_groups()))
     }

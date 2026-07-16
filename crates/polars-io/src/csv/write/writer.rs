@@ -49,7 +49,6 @@ where
         }
         let names = df
             .get_column_names()
-            .into_iter()
             .map(|x| x.as_str())
             .collect::<Vec<_>>();
         if self.header {
@@ -208,7 +207,6 @@ impl<W: Write> BatchedWriter<W> {
             self.has_written_header = true;
             let names = df
                 .get_column_names()
-                .into_iter()
                 .map(|x| x.as_str())
                 .collect::<Vec<_>>();
 

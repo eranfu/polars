@@ -7,7 +7,7 @@ use super::*;
 fn test_with_duplicate_column_empty_df() {
     let a = Int32Chunked::from_slice("a".into(), &[]);
 
-    assert_eq!(
+    itertools::assert_equal(
         DataFrame::new_infer_height(vec![a.into_column()])
             .unwrap()
             .lazy()
