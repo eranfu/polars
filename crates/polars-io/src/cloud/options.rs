@@ -36,7 +36,9 @@ use super::credential_provider::PlCredentialProvider;
 #[cfg(feature = "cloud")]
 use crate::cloud::ObjectStoreErrorContext;
 #[cfg(any(feature = "aws", feature = "gcp", feature = "azure", feature = "http"))]
-use crate::cloud::dns::{CachingResolver, DnsResolverConfig};
+// NOTE: CachingResolver/DnsResolverConfig（crate::cloud::dns）暂不再被 options 引用，
+// 因 object_store 0.13 移除了 ClientOptions::with_dns_resolver 挂载点。模块仍保留（pub），
+// 待 0.13 支持的 DNS 缓存方式确定后重新接入。
 #[cfg(feature = "file_cache")]
 use crate::file_cache::get_env_file_cache_ttl;
 #[cfg(feature = "aws")]
@@ -303,9 +305,9 @@ pub(super) fn get_client_options() -> ClientOptions {
         ))
         .with_user_agent(HeaderValue::from_static(USER_AGENT))
         .with_allow_http(true)
-        .with_dns_resolver(Arc::new(
-            CachingResolver::new(DnsResolverConfig::from_env()),
-        ))
+    // NOTE: 自定义 DNS 缓存 resolver（CachingResolver/DnsResolverConfig）在 object_store 0.13
+    // 已无挂载点（ClientOptions 移除 with_dns_resolver，DNS 处理内置化）。暂时移除以恢复编译；
+    // object_store 0.13 内置 DNS 已可用，DNS 缓存优化如需保留应另寻 0.13 支持的方式。
 }
 
 #[cfg(feature = "aws")]
