@@ -52,12 +52,12 @@ impl DataFrame {
         I: IntoIterator<Item = R>,
         R: IntoIterator<Item = AnyValue<'a>>,
     {
-        Self::try_from_rows_iter_and_schema_generic(rows.into_iter().map(|r| Ok(r)), schema)
+        Self::try_from_rows_iter_and_schema(rows.into_iter().map(|r| Ok(r)), schema)
     }
 
     /// Create a new [`DataFrame`] from an iterator over rows. This should only be used when you have row wise data,
     /// as this is a lot slower than creating the [`Series`] in a columnar fashion
-    pub fn try_from_rows_iter_and_schema_generic<'a, I, R>(rows: I, schema: &Schema) -> PolarsResult<Self>
+    pub fn try_from_rows_iter_and_schema<'a, I, R>(rows: I, schema: &Schema) -> PolarsResult<Self>
     where
         I: IntoIterator<Item = PolarsResult<R>>,
         R: IntoIterator<Item = AnyValue<'a>>,
@@ -89,49 +89,6 @@ impl DataFrame {
             Ok(())
         })?;
 
-        let v = buffers
-            .into_iter()
-            .zip(schema.iter_names())
-            .map(|(b, name)| {
-                let mut c = b.into_series()?.into_column();
-                // if the schema adds a column not in the rows, we
-                // fill it with nulls
-                if c.is_empty() {
-                    Ok(Column::full_null(name.clone(), expected_len, c.dtype()))
-                } else {
-                    c.rename(name.clone());
-                    Ok(c)
-                }
-            })
-            .collect::<PolarsResult<Vec<_>>>()?;
-
-        DataFrame::new(expected_len, v)
-    }
-
-    /// Create a new [`DataFrame`] from an iterator over rows. This should only be used when you have row wise data,
-    /// as this is a lot slower than creating the [`Series`] in a columnar fashion
-    pub fn try_from_rows_iter_and_schema<'a, I>(mut rows: I, schema: &Schema) -> PolarsResult<Self>
-    where
-        I: Iterator<Item = PolarsResult<&'a Row<'a>>>,
-    {
-        let capacity = rows.size_hint().0;
-
-        let mut buffers: Vec<_> = schema
-            .iter_values()
-            .map(|dtype| {
-                let buf: AnyValueBuffer = (dtype, capacity).into();
-                buf
-            })
-            .collect();
-
-        let mut expected_len = 0;
-        rows.try_for_each::<_, PolarsResult<()>>(|row| {
-            expected_len += 1;
-            for (value, buf) in row?.0.iter().zip(&mut buffers) {
-                buf.add_fallible(value)?
-            }
-            Ok(())
-        })?;
         let v = buffers
             .into_iter()
             .zip(schema.iter_names())
