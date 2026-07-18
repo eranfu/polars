@@ -1,8 +1,14 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 use std::borrow::Cow;
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
+#[cfg(feature = "dtype-date")]
+use chrono::{Datelike, NaiveDate};
+#[cfg(feature = "dtype-datetime")]
+use chrono::NaiveDateTime;
+#[cfg(all(feature = "timezones", feature = "dtype-datetime"))]
+use chrono::DateTime;
 use arrow::types::PrimitiveType;
 use num_traits::ToBytes;
+#[cfg(feature = "dtype-date")]
 use arrow::temporal_conversions::EPOCH_DAYS_FROM_CE;
 use polars_compute::cast::SerPrimitive;
 use polars_error::feature_gated;

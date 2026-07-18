@@ -52,12 +52,12 @@ impl DataFrame {
         I: IntoIterator<Item = R>,
         R: IntoIterator<Item = AnyValue<'a>>,
     {
-        Self::try_from_rows_iter_and_schema(rows.into_iter().map(|r| Ok(r)), schema)
+        Self::try_from_rows_iter_and_schema_generic(rows.into_iter().map(|r| Ok(r)), schema)
     }
 
     /// Create a new [`DataFrame`] from an iterator over rows. This should only be used when you have row wise data,
     /// as this is a lot slower than creating the [`Series`] in a columnar fashion
-    pub fn try_from_rows_iter_and_schema<'a, I, R>(rows: I, schema: &Schema) -> PolarsResult<Self>
+    pub fn try_from_rows_iter_and_schema_generic<'a, I, R>(rows: I, schema: &Schema) -> PolarsResult<Self>
     where
         I: IntoIterator<Item = PolarsResult<R>>,
         R: IntoIterator<Item = AnyValue<'a>>,
